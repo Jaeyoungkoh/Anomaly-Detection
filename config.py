@@ -18,7 +18,7 @@ TOTAL_CONFIG = {
             'train_dir': 'data/SMAP_MSL/train',
             'test_dir': 'data/SMAP_MSL/test',
             'test_label_path' : 'data/SMAP_MSL/labeled_anomalies.csv',
-            'sub_data_name' : 'F-7',
+            'sub_data_name' : 'P-1',
             'slide_size' : 1,
         },
         'COLLECTOR': {
@@ -57,13 +57,20 @@ TOTAL_CONFIG = {
             'lr': 0.01, # 초기값
             'model_type' : 'reconstruction'
         },
-        'MTAD-GAT': {
+        'MTAD_GAT': {
             'win_size': 100,            
             'optimizer' : 'adam',
             'scaler' : 'minmax',
             'lr': 0.001,
-            'model_type' : 'reconstruction'
+            'model_type' : 'mix'
         },        
+        'GDN': {
+            'win_size': 5,            
+            'optimizer' : 'adam',
+            'scaler' : 'minmax',
+            'lr': 0.001,
+            'model_type' : 'forecasting'
+        },
         'Proposed': {
             'win_size': 50,            
             'optimizer' : 'adam',

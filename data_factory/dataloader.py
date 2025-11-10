@@ -1,6 +1,7 @@
 import torch
-from data_factory.dataset import BuildDataset, load_dataset
+from data_factory.dataset import BuildDataset, load_dataset, construct_data, SlidingWindowDataset
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+import itertools # <--- [추가] GDN의 edge_index 생성용
 
 def get_dataloader(args):
     
@@ -41,10 +42,34 @@ def get_dataloader(args):
             tst = scaler.transform(tst)
         print(f'{scaler} Normalization done')
 
-    # build dataset
-    trn_dataset = BuildDataset(trn, window_size, slide_size, attacks=None, model_type=model_type)
-    val_dataset = BuildDataset(val, window_size, slide_size, attacks=None, model_type=model_type)
-    tst_dataset = BuildDataset(tst, window_size, window_size, attacks=label, model_type=model_type)
+    if args.model_name == 'GDN':
+    # 1. Node 개수 파악 및 Fully-Connected Edge Index 생성
+        node_num = trn.shape[1] # (Time, Features)에서 Features 개수
+        edges = list(itertools.permutations(range(node_num), 2))
+        sources = [edge[0] for edge in edges]
+        targets = [edge[1] for edge in edges] 
+        edge_index_list = [targets, sources]
+        fc_edge_index = torch.tensor(edge_index_list, dtype=torch.long)
+
+        # 2. [GDN] construct_data로 포맷 변경 (스케일링된 NumPy 배열 사용)
+        trn_data_gdn = construct_data(trn, labels=0)
+        val_data_gdn = construct_data(val, labels=0)
+        tst_data_gdn = construct_data(tst, labels=label)
+        
+        # 3. [GDN] SlidingWindowDataset 생성
+        cfg = {'slide_window': window_size, 'slide_stride': slide_size}
+        trn_dataset = SlidingWindowDataset(trn_data_gdn, fc_edge_index, mode='train', config=cfg)
+        val_dataset = SlidingWindowDataset(val_data_gdn, fc_edge_index, mode='test', config=cfg)
+        tst_dataset = SlidingWindowDataset(tst_data_gdn, fc_edge_index, mode='test', config=cfg)
+
+    else: 
+        # build dataset
+        trn_dataset = BuildDataset(trn, window_size, slide_size, attacks=None, model_type=model_type)
+        val_dataset = BuildDataset(val, window_size, slide_size, attacks=None, model_type=model_type)
+        if model_type == 'reconstruction':
+            tst_dataset = BuildDataset(tst, window_size, window_size, attacks=label, model_type=model_type)
+        elif model_type in ['forecasting', 'mix']:
+            tst_dataset = BuildDataset(tst, window_size, slide_size, attacks=label, model_type=model_type)
 
     # torch dataloader
     trn_dataloader = torch.utils.data.DataLoader(trn_dataset,

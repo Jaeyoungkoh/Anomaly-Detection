@@ -12,6 +12,7 @@ from model.VTTPAT import VTTPAT
 from model.VTTSAT import VTTSAT
 from model.TranAD import TranAD
 from model.MTAD_GAT import MTAD_GAT
+from model.GDN import GDN
 from model.Proposed import Proposed
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
@@ -94,6 +95,7 @@ class Solver(object):
         model_dict = {
             'AnomalyTransformer' : AnomalyTransformer,
             'MTAD_GAT' : MTAD_GAT,
+            'GDN' : GDN,
             'TranAD' : TranAD,
             'VTTPAT' : VTTPAT,
             'VTTSAT' : VTTSAT,
@@ -107,7 +109,16 @@ class Solver(object):
         # load data
         self.train_loader, self.vali_loader, self.test_loader = get_dataloader(self.args)
         # Channel 개수 추출
-        _, _, self.args.input_c = next(iter(self.train_loader))[0].shape
+        first_batch = next(iter(self.train_loader))
+        if self.args.model_name == 'GDN':
+            edge_index_sets = []
+            _, self.args.input_c, _ = first_batch[0].shape
+            edge_index = first_batch[-1]
+            edge_index_sets.append(edge_index[0])
+            self.args.edge_index_sets = edge_index_sets
+        else:
+            _, _, self.args.input_c = first_batch[0].shape
+
 
         self.build_model(self.args, model_dict)
         self.criterion = nn.MSELoss()
@@ -149,7 +160,7 @@ class Solver(object):
 
             loss_1, loss_2 = [], []
 
-            for i, (input_data, _, _) in enumerate(vali_loader):
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
                 input = input_data.float().to(self.device)
 
                 output, series, prior, _ = self.model(input)
@@ -173,23 +184,55 @@ class Solver(object):
             return np.average(loss_1), np.average(loss_2)
 
         elif self.args.model_name in ['MTAD_GAT']:
+            
+            fore_list = []
+            recon_list = []
+            loss = []
+
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
+                input = input_data.float().to(self.device)
+                recons, fore, attns = self.model(input)
+
+                if self.args.model_type == 'reconstruction':
+                    rec_loss = self.criterion(recons, input)
+                    loss.append(rec_loss.item())
+
+                elif self.args.model_type == 'mix':
+                    y = y.float().to(self.device)    
+                    y = y.squeeze(1)
+                    fore = fore.squeeze(1)
+
+                    fore_loss = self.criterion(fore, y)
+                    rec_loss = self.criterion(recons, input)
+                    fore_list.append(fore_loss.item())
+                    recon_list.append(rec_loss.item())
+                    total_loss = fore_loss + rec_loss
+                    loss.append(total_loss.item())    
+
+            return np.average(loss)
+
+        elif self.args.model_name in ['GDN']:
 
             loss = []
 
-            for i, (input_data, _, _) in enumerate(vali_loader):
+            for i, (input_data, y, label, edge_index) in enumerate(vali_loader):
                 input = input_data.float().to(self.device)
-                output, _ = self.model(input)
+                y = y.float().to(self.device)
+                edge_index = edge_index.long().to(self.device)
 
-                rec_loss = self.criterion(output, input)
+                output, _, _, _, _ = self.model(input, edge_index)
+
+                rec_loss = self.criterion(output, y)
                 loss.append(rec_loss.item())
             
             return np.average(loss)
+
 
         elif self.args.model_name in ['TranAD']:
 
             loss = []
 
-            for i, (input_data, _, _) in enumerate(vali_loader):
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
                 input = input_data.float().to(self.device)
                 input = input.permute(1,0,2)
                 output = self.model(input)
@@ -206,7 +249,7 @@ class Solver(object):
 
             loss = []
 
-            for i, (input_data, _, _) in enumerate(vali_loader):
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
                 input = input_data.float().to(self.device)
                 output, attns = self.model(input)
                 rec_loss = self.criterion(output, input)
@@ -229,13 +272,15 @@ class Solver(object):
 
             loss1_list, loss2_list = [], []
             series_list, prior_list = [], []
+            fore_list = []
             recon_list = []
+            total_list = []
             epoch_start = time.time()
             self.model.train()
 
             print(f"Epoch: {epoch} start")
-
-            for i, (input_data, _, _) in tqdm(enumerate(self.train_loader)):
+            
+            for i, (input_data, y, label, edge_index) in tqdm(enumerate(self.train_loader)):
 
                 self.optimizer.zero_grad()
                 input = input_data.float().to(self.device)
@@ -291,9 +336,36 @@ class Solver(object):
                     self.optimizer.step()
 
                 elif self.args.model_name in ['MTAD_GAT']:
-                    output, _ = self.model(input)
+                    recons, fore, attns = self.model(input)
 
-                    rec_loss = self.criterion(output, input)
+                    if self.args.model_type == 'reconstruction':
+                        rec_loss = self.criterion(recons, input)
+                        recon_list.append(rec_loss.item())
+
+                        rec_loss.backward()
+
+                    elif self.args.model_type == 'mix':   
+                        y = y.float().to(self.device)        
+                        fore = fore.squeeze(1)
+                        y = y.squeeze(1)
+
+                        fore_loss = self.criterion(fore, y)
+                        rec_loss = self.criterion(recons, input)
+                        fore_list.append(fore_loss.item())
+                        recon_list.append(rec_loss.item())
+                        total_loss = fore_loss + rec_loss
+                        total_list.append(total_loss.item())
+                        total_loss.backward()
+                    
+                    self.optimizer.step()
+
+                elif self.args.model_name in ['GDN']:
+                    y = y.float().to(self.device)
+                    edge_index = edge_index.long().to(self.device)
+
+                    output, _, _, _, _ = self.model(input, edge_index)
+
+                    rec_loss = self.criterion(output, y)
                     recon_list.append(rec_loss.item())
                 
                     rec_loss.backward()
@@ -318,7 +390,7 @@ class Solver(object):
                 prior_list = np.average(prior_list)    
 
                 vali_loss1, vali_loss2 = self.vali(self.vali_loader)
-                print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} Recon Loss: {:.7f} Series Loss: {:.7f} Prior Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss1, recon_loss, series_loss, prior_loss))
+                print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} Recon Loss: {:.7f} Series Loss: {:.7f} Prior Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss1, recon_loss, series_list, prior_list))
 
                 early_stopping(vali_loss1, vali_loss2, self.model, path)
                 if early_stopping.early_stop:
@@ -329,7 +401,7 @@ class Solver(object):
                     adjust_learning_rate(self.optimizer, epoch + 1, self.args.lr)
 
 
-            elif self.args.model_name in ['MTAD_GAT']:         
+            elif self.args.model_name in ['GDN']:         
 
                 train_loss = np.average(recon_list)    
                 vali_loss = self.vali(self.vali_loader)     
@@ -345,7 +417,34 @@ class Solver(object):
                 if self.es_counter >= self.es_patience:
                     print(f"\nEarly stopping triggered after"
                           f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
-                    break     
+                    break   
+
+            elif self.args.model_name in ['MTAD_GAT']:         
+                
+                if self.args.model_type == 'reconstruction':
+                    train_loss = np.average(recon_list)    
+                    vali_loss = self.vali(self.vali_loader)     
+                    print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss))
+
+                elif self.args.model_type == 'mix':
+                    recon_loss = np.average(recon_list)    
+                    fore_loss = np.average(fore_list)
+                    train_loss = np.average(total_list)
+                    vali_loss = self.vali(self.vali_loader)     
+                    print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Recon Loss: {:.7f} Fore Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, recon_loss, fore_loss, vali_loss))
+
+                if vali_loss < self.best_val_total:
+                    self.best_val_total = vali_loss
+                    torch.save(self.model.state_dict(), os.path.join(path, "model.pt"))
+                    self.es_counter = 0 # Counter reset
+                else:
+                    self.es_counter += 1                  
+
+                if self.es_counter >= self.es_patience:
+                    print(f"\nEarly stopping triggered after"
+                          f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
+                    break                     
+
 
             elif self.args.model_name in ['TranAD']:         
     
@@ -399,11 +498,12 @@ class Solver(object):
 
         print("======================TEST MODE======================")
         
-        criterion = nn.MSELoss(reduce=False)
+        criterion = nn.MSELoss(reduction='none')
 
         test_labels = []
         actuals = []
         recons = []
+        preds = []
         attens_energy = []
         mse_loss = []
         att_scores = []
@@ -411,7 +511,7 @@ class Solver(object):
         channel_att_storage = {}
 
         with torch.no_grad():
-            for i, (input_data, _, labels) in enumerate(self.test_loader):
+            for i, (input_data, y, labels, edge_index) in enumerate(self.test_loader):
                 input = input_data.float().to(self.device)
 
                 # 매 Batch 마다 실행
@@ -438,23 +538,59 @@ class Solver(object):
 
                     actuals.append(input.detach().cpu().numpy())
                     recons.append(output.detach().cpu().numpy())
-                    attens_energy.append(cri)
-                    mse_loss.append(mse)
-                    test_labels.append(labels)
-
+                    # attens_energy.append(cri)
+                    mse_loss.append(cri)
+                    test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['MTAD_GAT']:   
-                    output, attn = self.model(input)
+                    if self.args.model_type == 'reconstruction':
+                        recons, fore, attns = self.model(input)
+                        loss = torch.mean(criterion(input, recons), dim=-1)  # (B, L)               
 
-                    loss = torch.mean(criterion(input, output), dim=-1)                
+                        mse = loss.detach().cpu().numpy().flatten() # (B*L,) 
+
+                        actuals.append(input.detach().cpu().numpy())
+                        recons.append(recons.detach().cpu().numpy())
+                        att_scores.append(attns.detach().cpu())                
+                        mse_loss.append(mse)
+                        test_labels.append(labels.detach().cpu().numpy())
+
+                    elif self.args.model_type == 'mix':
+                        y = y.float().to(self.device)
+                        _, fore_output, _ = self.model(input)
+
+                        recon_input = torch.cat((input[:,1:,:], y.unsqueeze(1)), dim=1)
+                        recon_output, _, attns = self.model(recon_input)
+
+                        recon_error = criterion(recon_input, recon_output)
+                        recon_loss = torch.mean(recon_error[:,-1,:], dim=-1)
+                        fore_loss = torch.mean(criterion(y, fore_output), dim=-1)
+                        loss = fore_loss + self.args.gamma * recon_loss
+
+                        mse = loss.detach().cpu().numpy().flatten()
+
+                        actuals.append(y.detach().cpu().numpy())
+                        preds.append(fore_output.detach().cpu().numpy())
+                        recons.append(recon_output[:,-1,:].detach().cpu().numpy())
+                        att_scores.append(attns.detach().cpu())                
+                        mse_loss.append(mse)
+                        test_labels.append(labels.detach().cpu().numpy())
+
+
+                elif self.args.model_name in ['GDN']:   
+                    y = y.float().to(self.device)
+                    edge_index = edge_index.long().to(self.device)
+
+                    output, _, _, _, _= self.model(input, edge_index)
+
+                    loss = torch.mean(criterion(output, y), dim=-1)                
 
                     mse = loss.detach().cpu().numpy().flatten()
 
-                    actuals.append(input.detach().cpu().numpy())
-                    recons.append(output.detach().cpu().numpy())
-                    att_scores.append(attn.detach().cpu())                
+                    actuals.append(y.detach().cpu().numpy())
+                    recons.append(output.detach().cpu().numpy())       
                     mse_loss.append(mse)
-                    test_labels.append(labels)
+                    test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['TranAD']:   
                     # input : [B, L, C]    
@@ -475,7 +611,7 @@ class Solver(object):
                     actuals.append(input.detach().cpu().numpy())
                     recons.append(output.detach().cpu().numpy())      
                     mse_loss.append(mse)
-                    test_labels.append(labels)
+                    test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['VTTPAT', 'VTTSAT']:   
                     output, _ = self.model(input)
@@ -487,7 +623,7 @@ class Solver(object):
                     actuals.append(input.detach().cpu().numpy())
                     recons.append(output.detach().cpu().numpy())
                     mse_loss.append(mse)
-                    test_labels.append(labels)
+                    test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['Proposed']:   
                     output, attn = self.model(input)
@@ -499,7 +635,7 @@ class Solver(object):
                     actuals.append(input.detach().cpu().numpy())
                     recons.append(output.detach().cpu().numpy())
                     mse_loss.append(mse)
-                    test_labels.append(labels)
+                    test_labels.append(labels.detach().cpu().numpy())
 
                     if self.args.output_attention:
                         # 마지막 Layer의 attention score
@@ -534,8 +670,8 @@ class Solver(object):
                 test_mse = np.array(mse_loss)
                 test_labels = np.array(test_labels)
 
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[2])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[2])
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
             elif self.args.model_name == 'MTAD_GAT':
 
@@ -546,9 +682,21 @@ class Solver(object):
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
                 test_mse = np.array(mse_loss)
                 test_labels = np.array(test_labels)
+                
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
+                if self.args.model_type == 'mix':            
+                    preds = np.concatenate(preds, axis=0).reshape(-1, preds[0].shape[-1]) # (B*L,K)
+                    
+            elif self.args.model_name == 'GDN':
 
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[2])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[2])
+                mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
+                test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
+                test_mse = np.array(mse_loss)
+                test_labels = np.array(test_labels)
+
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
             elif self.args.model_name == 'TranAD':
 
@@ -557,8 +705,8 @@ class Solver(object):
                 test_mse = np.array(mse_loss)
                 test_labels = np.array(test_labels)
 
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[2])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[2])
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
             elif self.args.model_name in ['VTTSAT', 'VTTPAT']:
 
@@ -567,8 +715,8 @@ class Solver(object):
                 test_mse = np.array(mse_loss)
                 test_labels = np.array(test_labels)
 
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[2])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[2])
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
             elif self.args.model_name in ['Proposed']:
 
@@ -577,8 +725,8 @@ class Solver(object):
                 test_mse = np.array(mse_loss)
                 test_labels = np.array(test_labels)
 
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[2])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[2])
+                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
+                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
                 if self.args.output_attention:
                     np.save(os.path.join(self.args.save_path, f'temporal_att_storage.npy'), temporal_att_storage)
@@ -591,12 +739,21 @@ class Solver(object):
             anomaly_scores = np.zeros_like(actuals)
 
             for i in range(recons.shape[1]): # Feature 별
+                
+                if self.args.model_type in ['reconstruction', 'forecasting']:
+                    df_dict[f"Recons_{i}"] = recons[:, i] # (N - window, 1)
+                    df_dict[f"True_{i}"] = actuals[:, i] # (N - window, 1)
+                    recons_error = (recons[:, i] - actuals[:, i]) ** 2
+                    a_score = np.sqrt(recons_error)
 
-                df_dict[f"Recons_{i}"] = recons[:, i] # (N - window, 1)
-                df_dict[f"True_{i}"] = actuals[:, i] # (N - window, 1)
-
-                recons_error = (recons[:, i] - actuals[:, i]) ** 2
-                a_score = np.sqrt(recons_error)
+                elif self.args.model_type == 'mix':
+                    df_dict[f"Preds_{i}"] = preds[:, i] # (N - window, 1)
+                    df_dict[f"Recons_{i}"] = recons[:, i] # (N - window, 1)
+                    df_dict[f"True_{i}"] = actuals[:, i] # (N - window, 1)
+                    recons_error = (recons[:, i] - actuals[:, i]) ** 2
+                    preds_error = (preds[:, i] - actuals[:, i]) ** 2
+                    a_score = np.sqrt(preds_error) + self.args.gamma * np.sqrt(recons_error)
+                    
 
                 # IQR 사용 여부 (feature 간 스케일을 맞춰서 비교를 용이하게 만들어주는 역할)
                 if self.args.scale_scores:
@@ -609,10 +766,13 @@ class Solver(object):
                 anomaly_scores[:, i] = a_score # (N - window, 1) > (N - window, k)
                 df_dict[f"A_Score_{i}"] = a_score
 
+            a_scores_mean = np.mean(anomaly_scores, 1)
+            df_dict['A_Score_Global'] = a_scores_mean
             test_df = pd.DataFrame(df_dict)
 
             # PA%K(=100) AUC
-            scores = test_mse.copy()
+            # scores = test_mse.copy()
+            scores = a_scores_mean.copy()
             attack = test_labels.copy()   
             start=np.percentile(scores, 50)
             end=np.percentile(scores, 99)                      
@@ -624,7 +784,7 @@ class Solver(object):
             print(f"Results of PA%K=100 AUC using best f1 score search:\n {bf_eval}")
 
             # bf-method save
-            test_df["A_Score_Global"] = scores
+            # test_df["A_Score_Global"] = scores
             global_bf_thres = bf_eval["threshold"]
             test_df["A_True_Global"] = attack
             test_df["Thresh_Global_bf"] = global_bf_thres
@@ -632,15 +792,20 @@ class Solver(object):
             test_df[f"A_Pred_Global_bf"] = test_preds_global
 
             count = 0
-            for filename in os.listdir(self.args.save_path):
-                if filename.startswith("train_output"):
-                        count += 1
-            if count == 0:
-                print(f"Saving output to {self.args.save_path}/<train/test>_output.pkl")
-                test_df.to_pickle(f"{self.args.save_path}/test_output.pkl")
-            else:
-                print(f"Saving output to {self.args.save_path}/<train/test>_output_{count}.pkl")
-                test_df.to_pickle(f"{self.args.save_path}/test_output_{count}.pkl")
+            count = sum(1 for f in os.listdir(self.args.save_path) if f.startswith("test_output"))
+            fname = "test_output.pkl" if count == 0 else f"test_output_{count}.pkl"
+            test_df.to_pickle(os.path.join(self.args.save_path, fname))
+
+            # count = 0
+            # for filename in os.listdir(self.args.save_path):
+            #     if filename.startswith("train_output"):
+            #             count += 1
+            # if count == 0:
+            #     print(f"Saving output to {self.args.save_path}/<train/test>_output.pkl")
+            #     test_df.to_pickle(f"{self.args.save_path}/test_output.pkl")
+            # else:
+            #     print(f"Saving output to {self.args.save_path}/<train/test>_output_{count}.pkl")
+            #     test_df.to_pickle(f"{self.args.save_path}/test_output_{count}.pkl")
 
             # PA%K AUCs using best f1 search method     
             history = dict()

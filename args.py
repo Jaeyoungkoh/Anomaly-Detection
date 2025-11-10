@@ -13,17 +13,18 @@ def str2bool(v):
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--seed', type=int, help='set seed if reproducibility is required', default=1) # seed 설정
-    parser.add_argument("--dataset", type=str, default="SMD", choices = ['SWaT, SMD, SMAP_MSL, COLLECTOR'])
+    parser.add_argument("--dataset", type=str, default="SMAP_MSL", choices = ['SWaT, SMD, SMAP_MSL, COLLECTOR'])
     parser.add_argument('--sub_data_name', type=str, default=None, help='dataset name')
-    parser.add_argument('--model_name', type=str, default='TranAD', choices=['AnomalyTransformer', 
-                                                                            'MTAD_GAT', 
+    parser.add_argument('--model_name', type=str, default='Proposed', choices=['AnomalyTransformer', 
+                                                                            'MTAD_GAT',
+                                                                            'GDN', 
                                                                             'TranAD',
                                                                             'VTTPAT',
                                                                             'VTTSAT',
                                                                             'Proposed'])
-    parser.add_argument('--model_type', type=str, default=None, choices=['reconstruction', 'forecasting'])    
+    parser.add_argument('--model_type', type=str, default=None, choices=['reconstruction', 'forecasting', 'mix'])    
     parser.add_argument("--device", type=str, default='cuda')
     parser.add_argument("--model_id", type=str, default=None, help="ID (datetime) of pretrained model to use, '-1' for latest, '-2' for second latest, etc")
 
@@ -69,8 +70,19 @@ def get_parser():
     parser.add_argument('--recon_hid_dim', type=int, default=300)   
     parser.add_argument('--dropout_gat', type=float, default=0.2, help='MTAD-GAT_dropout')
     parser.add_argument('--alpha', type=float, default=0.2, help='')
-    parser.add_argument("--scale_scores", type=str2bool, default=True, help='Anomaly score IQR 사용 여부') 
-   
+    parser.add_argument('--gamma', type=float, default=0.8, help='')
+    parser.add_argument("--scale_scores", type=str2bool, default=False, help='Anomaly score IQR 사용 여부') 
+
+    # GDN
+    parser.add_argument('--embed_dim', help='embedding dimension', type = int, default=128) # 64
+    parser.add_argument('--save_path_pattern', help='save path pattern', type = str, default='')
+    parser.add_argument('--out_layer_num', help='outlayer num', type = int, default=1)
+    parser.add_argument('--out_layer_inter_dim', help='out_layer_inter_dim', type = int, default=256) # 256
+    parser.add_argument('--weight_decay', help='decay', type = float, default=0)
+    parser.add_argument('--val_ratio', help='val ratio', type = float, default=0.1)
+    parser.add_argument('--topk', help='topk num', type = int, default=10)
+    parser.add_argument("--save_attention", type=str2bool, default=True)  
+
     # Model-agnostic Norm/Denorm
     parser.add_argument("--norm_type", type=str, default='revin', help=['revin', 'dish-ts', None])
     parser.add_argument('--affine', type=int, default=0, help='RevIN-affine; True 1 False 0')  

@@ -1,6 +1,6 @@
 import numpy as np
 import more_itertools as mit
-from spot import SPOT, dSPOT
+from utils.spot import SPOT, dSPOT
 from collections import Counter
 from sklearn.metrics import f1_score, roc_curve, roc_auc_score, precision_score, recall_score, average_precision_score
 import torch
