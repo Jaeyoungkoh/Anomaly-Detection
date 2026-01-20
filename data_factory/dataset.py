@@ -83,12 +83,16 @@ class BuildDataset(Dataset):
         return np.float32(x), np.float32(y), np.float32(z), 0
 
 
+def convertNumpy(df):
+	x = df[df.columns[3:]].values[::10, :]
+	return (x - x.min(0)) / (x.ptp(0) + 1e-4)
+
 def load_dataset(args):
 
     valid_split_rate = args.valid_split_rate
 
     try:
-        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR']
+        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'synthetic', 'WADI']
     except AssertionError as e:
         raise ValueError(f"Invalid dataname: {args.dataset}")
 
@@ -102,6 +106,71 @@ def load_dataset(args):
         test_label[test_label == 'Normal'] = 0
         test_label[test_label != 0] = 1
         testset = testset.drop(['Normal/Attack', ' Timestamp'], axis=1).to_numpy()
+
+    elif args.dataset == 'synthetic':
+        train_raw = pd.read_csv(args.train_dir, header=None).to_numpy()
+        split = 10000
+
+        trainset = train_raw[:, :split].reshape(split, -1)
+        testset = train_raw[:, split:].reshape(split, -1)      
+
+        valid_split_index = int(len(trainset) * valid_split_rate)    
+        validset = trainset[valid_split_index:]
+        trainset = trainset[:valid_split_index]  
+
+        label_raw = pd.read_csv(args.test_label_dir, header=None)
+        label_raw[0] -= split
+
+        test_label = np.zeros(testset.shape)
+        for i in range(label_raw.shape[0]):
+            point = int(label_raw.values[i][0])
+            # 컬럼 인덱스를 정수형으로 변환하여 할당
+            col_indices = label_raw.values[i][1:].astype(int)
+            test_label[max(0, point-30):min(len(test_label), point+30), col_indices] = 1        
+        for i in range(label_raw.shape[0]):
+            point = label_raw.values[i][0]
+            test_label[point-30:point+30, label_raw.values[i][1:]] = 1
+        testset += test_label * np.random.normal(0.75, 0.1, testset.shape)
+
+        test_label = test_label.max(axis=1)
+
+    elif args.dataset == 'WADI':
+
+        train_raw = pd.read_csv(args.train_path, skiprows=1000, nrows=2e5)
+        test_raw = pd.read_csv(args.test_path)
+        ls = pd.read_csv(args.test_label_path)
+
+        train_raw.dropna(how='all', inplace=True); test_raw.dropna(how='all', inplace=True)
+        train_raw.fillna(0, inplace=True); test_raw.fillna(0, inplace=True)
+
+        valid_split_index = int(len(train_raw) * valid_split_rate)    
+        validset = train_raw[valid_split_index:]
+        trainset = train_raw[:valid_split_index]  
+
+        test_raw['Time'] = test_raw['Time'].astype(str)
+        test_raw['Time'] = pd.to_datetime(test_raw['Date'] + ' ' + test_raw['Time'], dayfirst=True)
+        labels = test_raw.copy(deep = True)
+
+        for i in test_raw.columns.tolist()[3:]: labels[i] = 0
+        for i in ['Start Time', 'End Time']: 
+            ls[i] = ls[i].astype(str)
+            ls[i] = pd.to_datetime(ls['Date'] + ' ' + ls[i], dayfirst=True)
+        for index, row in ls.iterrows():
+            to_match = row['Affected'].split(', ')
+            matched = []
+            for i in test_raw.columns.tolist()[3:]:
+                for tm in to_match:
+                    if tm in i: 
+                        matched.append(i); break			
+            st, et = str(row['Start Time']), str(row['End Time'])
+            labels.loc[(labels['Time'] >= st) & (labels['Time'] <= et), matched] = 1
+
+        trainset, validset, testset, test_label = convertNumpy(trainset), convertNumpy(validset), convertNumpy(test_raw), convertNumpy(labels)
+        test_label = (test_label > 0).astype(np.float32) 
+
+        # 혹은 라벨이 여러 컬럼일 경우 하나라도 1이면 1이 되도록 통합 (Anomaly Detection 기준)
+        if test_label.ndim > 1:
+            test_label = test_label.max(axis=1)
 
     elif args.dataset == 'SMD':
         trainset = np.loadtxt(os.path.join(args.train_dir, f'{args.sub_data_name}.txt'),
@@ -192,6 +261,7 @@ class SlidingWindowDataset(Dataset):
         self.config = config
         self.slide_window = self.config['slide_window']
         self.slide_stride = self.config['slide_stride']
+        self.model_type = self.config['model_type']
 
         data = raw_data[:-1] # 마지막 항(label list) 제외
         labels = raw_data[-1] # 마지막 항
@@ -231,12 +301,30 @@ class SlidingWindowDataset(Dataset):
 
         is_train = self.mode == 'train'
 
-        rang = range(self.slide_window, self.total_time_len, self.slide_stride) if is_train else range(self.slide_window, self.total_time_len)
-        
+        if is_train:
+            # Train mode : 설정된 stride 사용
+            current_stride = self.slide_stride
+        else:
+            # Test/Val mode : model_type에 따라 분기
+            if self.model_type == 'reconstruction':
+                current_stride = self.slide_window
+            else:
+                # Forecasting (or others): 1칸씩 이동 (Sliding Window)
+                current_stride = 1
+
+        # 결정된 stride 적용
+        rang = range(self.slide_window, self.total_time_len, current_stride)
+       
         for i in rang:
             window = data[:, i-self.slide_window:i] 
-            target = data[:, i] 
-            label = labels[i] 
+            if self.model_type == 'reconstruction':
+                # Reconstruction: Target은 Input과 동일, Label도 Window 전체 구간
+                target = window
+                label = labels[i-self.slide_window:i]
+            else:    
+                # Forecasting: Target은 Window 다음 시점(i), Label도 해당 시점(i)    
+                target = data[:, i] 
+                label = labels[i] 
 
             x_arr.append(window)
             y_arr.append(target)
@@ -246,10 +334,23 @@ class SlidingWindowDataset(Dataset):
             return torch.empty(0, self.node_num, self.slide_window).float(), \
                    torch.empty(0, self.node_num).float(), \
                    torch.empty(0).float()
+        
+        # List -> Tensor 변환
+        # x = torch.stack(x_arr).contiguous()
+        # y = torch.stack(y_arr).contiguous()
+        # labels = torch.stack(labels_arr).contiguous()
 
-        x = torch.stack(x_arr).contiguous()
-        y = torch.stack(y_arr).contiguous()
-        labels = torch.Tensor(labels_arr).contiguous()
+        # 1. 데이터가 Tensor인 경우 (stack 사용)
+        if isinstance(x_arr[0], torch.Tensor):
+            x = torch.stack(x_arr).contiguous()
+            y = torch.stack(y_arr).contiguous()
+            labels = torch.stack(labels_arr).contiguous()
+            
+        # 2. 데이터가 Numpy Array인 경우 (np.array로 합친 후 변환)
+        else:
+            x = torch.from_numpy(np.array(x_arr)).float().contiguous()
+            y = torch.from_numpy(np.array(y_arr)).float().contiguous()
+            labels = torch.from_numpy(np.array(labels_arr)).float().contiguous()
 
         return x, y, labels
 
@@ -261,5 +362,5 @@ class SlidingWindowDataset(Dataset):
         label = self.labels[index].float()
 
         edge_index = self.edge_index.long()
-
+        
         return feature, y, label, edge_index

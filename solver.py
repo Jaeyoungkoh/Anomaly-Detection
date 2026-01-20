@@ -8,12 +8,15 @@ import time
 from utils.utils import *
 from eval_methods import *
 from model.AnomalyTransformer import AnomalyTransformer
+from model.DualTransformer import DualTransformer
 from model.VTTPAT import VTTPAT
 from model.VTTSAT import VTTSAT
 from model.TranAD import TranAD
 from model.MTAD_GAT import MTAD_GAT
 from model.GDN import GDN
 from model.Proposed import Proposed
+from model.Proposed_v2 import Proposed_v2
+from model.Proposed_v3 import Proposed_v3
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
 from torch.utils.tensorboard import SummaryWriter
@@ -99,7 +102,10 @@ class Solver(object):
             'TranAD' : TranAD,
             'VTTPAT' : VTTPAT,
             'VTTSAT' : VTTSAT,
-            'Proposed' : Proposed
+            'DualTransformer' : DualTransformer,
+            'Proposed' : Proposed,
+            'Proposed_v2' : Proposed_v2,
+            'Proposed_v3' : Proposed_v3
         }
 
         # self.train_loader = get_loader_segment(self.args, mode='train')
@@ -110,7 +116,8 @@ class Solver(object):
         self.train_loader, self.vali_loader, self.test_loader = get_dataloader(self.args)
         # Channel 개수 추출
         first_batch = next(iter(self.train_loader))
-        if self.args.model_name == 'GDN':
+
+        if self.args.model_name in ['GDN', 'Proposed_v2']:
             edge_index_sets = []
             _, self.args.input_c, _ = first_batch[0].shape
             edge_index = first_batch[-1]
@@ -123,7 +130,8 @@ class Solver(object):
         self.build_model(self.args, model_dict)
         self.criterion = nn.MSELoss()
         self.criterion_tran = nn.MSELoss(reduction='none')
-
+        self.k = args.k
+        
         # Early stopping
         self.best_val_total = np.inf                # 아직 최고 성능이 없음을 의미
         self.best_val_total = np.inf                # 아직 최고 성능이 없음을 의미
@@ -131,16 +139,24 @@ class Solver(object):
         self.es_counter     = 0                     # 연속 미개선 epoch 수
         self.delta          = 0                     # 최소 개선 폭 (미세 진동 방지용)
 
+        self.log_tensorboard = args.log_tensorboard
+
+
         self.args_summary = str(args.__dict__)
-        if self.args.log_tensorboard:
+        if self.log_tensorboard:
             self.writer = SummaryWriter(f"{self.args.log_dir}")
             self.writer.add_text("args_summary", self.args_summary)
+
+        self.losses = {
+            "train_loss": [],
+            "val_loss": [],
+        }    
 
 
     def build_model(self, args, model_dict):
         self.model = model_dict[args.model_name](args)
         if args.optimizer == 'adamw':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         elif args.optimizer == 'adam':
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
         elif args.optimizer == 'sgd':
@@ -227,6 +243,22 @@ class Solver(object):
             
             return np.average(loss)
 
+        elif self.args.model_name in ['Proposed_v2']:
+
+            loss = []
+
+            for i, (input_data, y, label, edge_index) in enumerate(vali_loader): # input_data : (B, C, L)
+                input = input_data.float().to(self.device)
+                y = y.float().to(self.device)
+                edge_index = edge_index.long().to(self.device)
+
+                # Proposed_v2 returns (output, attns)
+                output, _ = self.model(input, edge_index)
+
+                rec_loss = self.criterion(output, input)
+                loss.append(rec_loss.item())
+            
+            return np.average(loss)
 
         elif self.args.model_name in ['TranAD']:
 
@@ -245,7 +277,7 @@ class Solver(object):
 
             return np.average(loss)  
 
-        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed']:
+        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v3']:
 
             loss = []
 
@@ -277,6 +309,8 @@ class Solver(object):
             total_list = []
             epoch_start = time.time()
             self.model.train()
+
+
 
             print(f"Epoch: {epoch} start")
             
@@ -371,7 +405,20 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed']:
+                elif self.args.model_name in ['Proposed_v2']:
+                    y = y.float().to(self.device)
+                    edge_index = edge_index.long().to(self.device)
+
+                    # Output: (B, L, C)
+                    output, _ = self.model(input, edge_index)
+
+                    rec_loss = self.criterion(output, input)
+                    recon_list.append(rec_loss.item())
+                
+                    rec_loss.backward()
+                    self.optimizer.step()
+
+                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v3']:
 
                     output, attns = self.model(input)
 
@@ -466,10 +513,17 @@ class Solver(object):
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed']:         
+            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:         
 
                 rec_loss = np.average(recon_list)    
-                vali_loss = self.vali(self.vali_loader)     
+                vali_loss = self.vali(self.vali_loader)  
+
+                # Append epoch loss
+                self.losses["train_loss"].append(rec_loss)
+                self.losses["val_loss"].append(vali_loss)
+
+                if self.log_tensorboard:
+                    self.write_loss(epoch)
 
                 print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, rec_loss, vali_loss))
 
@@ -625,11 +679,19 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed']:   
-                    output, attn = self.model(input)
+                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:   
+                    if self.args.model_name == 'Proposed_v2': 
+                        edge_index = edge_index.long().to(self.device)
+                        output, attn = self.model(input, edge_index) # B, C, L
 
-                    loss = torch.mean(criterion(input, output), dim=-1)                
-
+                        # shape: (B, C, L) -> Channel 축(dim=1)에 대해 평균 -> (B, L)
+                        loss = torch.mean(criterion(input, output), dim=1)       
+                        input = input.permute(0, 2, 1)   # (B, C, L) -> (B, L, C)
+                        output = output.permute(0, 2, 1) # (B, C, L) -> (B, L, C)                                         
+                    else:
+                        output, attn = self.model(input) # B, L, C
+                        loss = torch.mean(criterion(input, output), dim=-1)  
+                                      
                     mse = loss.detach().cpu().numpy()
 
                     actuals.append(input.detach().cpu().numpy())
@@ -718,7 +780,7 @@ class Solver(object):
                 actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
-            elif self.args.model_name in ['Proposed']:
+            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -795,17 +857,6 @@ class Solver(object):
             count = sum(1 for f in os.listdir(self.args.save_path) if f.startswith("test_output"))
             fname = "test_output.pkl" if count == 0 else f"test_output_{count}.pkl"
             test_df.to_pickle(os.path.join(self.args.save_path, fname))
-
-            # count = 0
-            # for filename in os.listdir(self.args.save_path):
-            #     if filename.startswith("train_output"):
-            #             count += 1
-            # if count == 0:
-            #     print(f"Saving output to {self.args.save_path}/<train/test>_output.pkl")
-            #     test_df.to_pickle(f"{self.args.save_path}/test_output.pkl")
-            # else:
-            #     print(f"Saving output to {self.args.save_path}/<train/test>_output_{count}.pkl")
-            #     test_df.to_pickle(f"{self.args.save_path}/test_output_{count}.pkl")
 
             # PA%K AUCs using best f1 search method     
             history = dict()
@@ -924,4 +975,9 @@ class Solver(object):
             pass
         else:
             os.mkdir(self.args.save_path)
-        torch.save(tensor, PATH)        
+        torch.save(tensor, PATH)        \
+
+    def write_loss(self, epoch):
+        for key, value in self.losses.items():
+            if len(value) != 0:
+                self.writer.add_scalar(key, value[-1], epoch)

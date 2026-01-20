@@ -135,10 +135,11 @@ class GraphLayer(MessagePassing):
         alpha = alpha.view(-1, self.heads, 1) # (Node_num*topk*Batch_size, 1, 1)
         alpha = F.leaky_relu(alpha, self.negative_slope) # (Node_num*topk*Batch_size, 1, 1)
         alpha = alpha.squeeze(-1).squeeze(-1) # (Node_num*topk*Batch_size)
-        size_i = torch.tensor(size_i)
-
+        # size_i = torch.tensor(size_i)
+        size_i = size_i.item() if isinstance(size_i, torch.Tensor) else size_i
+            
         # Softmax (edge_index_i 수신 노드별로 정규화)
-        alpha = softmax(alpha, edge_index_i, size_i)
+        alpha = softmax(alpha, edge_index_i, num_nodes=size_i)
            
         if return_attention_weights:
             self.__alpha__ = alpha # (Node_num × topk × Batch_size)

@@ -42,7 +42,7 @@ def get_dataloader(args):
             tst = scaler.transform(tst)
         print(f'{scaler} Normalization done')
 
-    if args.model_name == 'GDN':
+    if args.model_name in ['GDN', 'Proposed_v2']:
     # 1. Node 개수 파악 및 Fully-Connected Edge Index 생성
         node_num = trn.shape[1] # (Time, Features)에서 Features 개수
         edges = list(itertools.permutations(range(node_num), 2))
@@ -57,9 +57,9 @@ def get_dataloader(args):
         tst_data_gdn = construct_data(tst, labels=label)
         
         # 3. [GDN] SlidingWindowDataset 생성
-        cfg = {'slide_window': window_size, 'slide_stride': slide_size}
+        cfg = {'slide_window': window_size, 'slide_stride': slide_size, 'model_type' : model_type}
         trn_dataset = SlidingWindowDataset(trn_data_gdn, fc_edge_index, mode='train', config=cfg)
-        val_dataset = SlidingWindowDataset(val_data_gdn, fc_edge_index, mode='test', config=cfg)
+        val_dataset = SlidingWindowDataset(val_data_gdn, fc_edge_index, mode='train', config=cfg)
         tst_dataset = SlidingWindowDataset(tst_data_gdn, fc_edge_index, mode='test', config=cfg)
 
     else: 

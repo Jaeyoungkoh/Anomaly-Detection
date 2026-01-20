@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 def to_var(x, volatile=False):
     if torch.cuda.is_available():
@@ -77,3 +77,38 @@ def aux_corr_guidance_mse(attn_ch, x_used):
     # Rn을 row-softmax로 바꿔서 분포형으로 맞추는 것도 가능:
     # Rn = torch.softmax(R / 0.2, dim=-1)
     return F.mse_loss(A, Rn, reduction='mean')
+
+def plot_losses(losses, save_path="", plot=True):
+    """
+    :param losses: dict with losses
+    :param save_path: path where plots get saved
+    
+    trainer.losses = {
+        "train_total": [],
+        "train_forecast": [],
+        "train_recon": [],
+        "val_total": [],
+        "val_forecast": [],
+        "val_recon": [],
+    }
+    """
+
+    plt.plot(losses["train_loss"], label="Train loss")
+    plt.title("Training losses during training")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE")
+    plt.legend()
+    plt.savefig(f"{save_path}/train_losses.png", bbox_inches="tight")
+    if plot:
+        plt.show()
+    plt.close()
+
+    plt.plot(losses["val_loss"], label="Val loss")
+    plt.title("Validation losses during training")
+    plt.xlabel("Epoch")
+    plt.ylabel("RMSE")
+    plt.legend()
+    plt.savefig(f"{save_path}/validation_losses.png", bbox_inches="tight")
+    if plot:
+        plt.show()
+    plt.close()

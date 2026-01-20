@@ -200,7 +200,8 @@ class GDN(nn.Module):
             self.learned_graph = topk_indices_ji # (Node_num, topk)
 
             # Source node index (gated_i) 만들기
-            gated_i = torch.arange(0, node_num).T.unsqueeze(1).repeat(1, topk_num).flatten().to(self.device).unsqueeze(0) # (1, Node_num*topk)
+            # gated_i = torch.arange(0, node_num).T.unsqueeze(1).repeat(1, topk_num).flatten().to(self.device).unsqueeze(0) # (1, Node_num*topk)
+            gated_i = torch.arange(0, node_num, device=self.device).view(-1, 1).repeat(1, topk_num).flatten().unsqueeze(0)
             # Target node index (gated_j) 만들기
             gated_j = topk_indices_ji.flatten().unsqueeze(0) # (1, Node_num*topk)
 

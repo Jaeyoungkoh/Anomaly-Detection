@@ -141,38 +141,8 @@ class Proposed(nn.Module):
 
         # --- Branch 2: Channel Attention Stream ---
 
-        # self.channel_encoder = Encoder(
-        #     [
-        #         EncoderLayer(
-        #             MultiHeadFeatureAttention(self.enc_in, 
-        #                                     self.win_size, 
-        #                                     self.n_heads_gat, 
-        #                                     self.dropout_gat, 
-        #                                     self.alpha, 
-        #                                     self.gat_type,
-        #                                     self.feat_gat_embed_dim, 
-        #                                     self.use_node_embedding),
-        #             self.feat_gat_embed_dim, self.d_ff_channel, dropout=self.dropout, activation=self.activation, stream='channel'
-        #         )
-        #     ],
-        #     norm_layer=torch.nn.LayerNorm(self.feat_gat_embed_dim)
-        # )
-        # self.channel_decoder = nn.Linear(self.feat_gat_embed_dim, self.win_size)
-
         # self.feature_gat = FeatureAttentionLayer(self.enc_in, self.win_size, self.dropout_gat, self.alpha, self.feat_gat_embed_dim, self.use_gatv2)
-        self.feature_gat = MultiHeadFeatureAttention(
-                                            self.enc_in, 
-                                            self.win_size, 
-                                            self.n_heads_gat, 
-                                            self.dropout_gat, 
-                                            self.alpha, 
-                                            self.gat_type,
-                                            self.activation_chan,                                            
-                                            self.feat_gat_embed_dim,
-                                            self.d_ff_channel,
-                                            self.use_node_embedding,
-                                            self.concat
-                                            )
+        self.feature_gat = FeatureAttentionLayer(self.enc_in, self.win_size, self.dropout_gat, self.alpha, self.feat_gat_embed_dim, self.use_gatv2)
 
         # --- Fusion Layer ---
         self.forecasting_model = Forecasting_Model(self.enc_out * 3, self.forecast_hid_dim, self.enc_out, self.forecast_n_layers, self.dropout_fore)

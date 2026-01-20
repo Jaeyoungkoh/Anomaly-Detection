@@ -19,7 +19,7 @@ class TriangularCausalMask():
 
 
 class FullAttention(nn.Module):
-    def __init__(self, args, mask_flag=True, scale=None, attention_dropout=0.0, output_attention=False):
+    def __init__(self, mask_flag=True, scale=None, attention_dropout=0.0, output_attention=False):
         super(FullAttention, self).__init__()
         self.scale = scale
         self.mask_flag = mask_flag
@@ -50,10 +50,9 @@ class FullAttention(nn.Module):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, args, attention, d_model, n_heads, d_keys=None, d_values=None):
+    def __init__(self, attention, d_model, n_heads, d_keys=None, d_values=None):
         super(AttentionLayer, self).__init__()
         
-        self.args = args
         d_keys = d_keys or (d_model // n_heads)
         d_values = d_values or (d_model // n_heads)
 

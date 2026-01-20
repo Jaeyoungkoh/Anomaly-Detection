@@ -68,7 +68,7 @@ class AnomalyTransformer(nn.Module):
         self.win_size = args.win_size
         self.n_heads = args.n_heads # 8
         self.e_layers = args.e_layers # 3
-        self.d_ff = args.d_ff
+        self.d_ff = args.d_ff # 512
         self.activation = 'gelu'
 
         # Encoding

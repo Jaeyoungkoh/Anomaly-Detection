@@ -32,14 +32,10 @@ class MTAD_GAT(nn.Module):
           self.recon_n_layers=args.recon_n_layers
           self.recon_hid_dim=args.recon_hid_dim
 
-          self.dropout=args.dropout_gat
+          self.dropout=args.dropout_mtadgat
           self.alpha=args.alpha
 
           self.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-          self.norm_type = args.norm_type
-          self.affine = args.affine
-          self.subtract_last = args.subtract_last
 
           self.conv = ConvLayer(self.n_features, self.kernel_size)
           self.feature_gat = FeatureAttentionLayer(self.n_features, self.window_size, self.dropout, self.alpha, self.feat_gat_embed_dim, self.use_gatv2)
@@ -49,12 +45,6 @@ class MTAD_GAT(nn.Module):
           # self.forecasting_model = Forecasting_Model(self.n_features * 3, self.forecast_hid_dim, self.out_dim, self.forecast_n_layers, self.dropout)
 
           self.recon_model = ReconstructionModel(self.window_size, self.gru_hid_dim, self.recon_hid_dim, self.out_dim, self.recon_n_layers, self.dropout)
-
-          if self.norm_type == 'revin':
-            self.norm = RevIN(num_features=self.n_features, affine=self.affine, subtract_last=self.subtract_last)
-          if self.norm_type == 'dish-ts':
-            self.norm = DishTS(n_series=self.n_features, seq_len=self.window_size, dish_init='uniform')
-            print(f'Normalization for distribution shift using { self.norm_type}')
 
     def forward(self, x):
         # X의 차원 : (B,L,D)

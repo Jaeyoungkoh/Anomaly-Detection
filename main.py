@@ -28,7 +28,8 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)                     # PyTorch CPU seed
     torch.cuda.manual_seed(args.seed)                # PyTorch GPU seed (single-GPU)  
     torch.backends.cudnn.deterministic = True        # deterministic 연산 강제 (재현 가능성 ↑)
-    torch.backends.cudnn.benchmark = True   
+    torch.backends.cudnn.benchmark = False   
+    torch.use_deterministic_algorithms(False)
 
     args.output_path = f'output/{args.dataset}/{args.model_name}' # output/dataset/model_name
     args.log_dir = f'{args.output_path}/logs'
@@ -60,6 +61,9 @@ if __name__ == '__main__':
 
         solver = Solver(args)
         solver.train()
+
+        # Train/Validation 결과 Plot 생성
+        plot_losses(solver.losses, save_path=args.save_path, plot=False)
 
     # TEST SECTION
     elif args.mode == 'test':
