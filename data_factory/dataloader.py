@@ -42,7 +42,7 @@ def get_dataloader(args):
             tst = scaler.transform(tst)
         print(f'{scaler} Normalization done')
 
-    if args.model_name in ['GDN', 'Proposed_v2']:
+    if args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3']:
     # 1. Node 개수 파악 및 Fully-Connected Edge Index 생성
         node_num = trn.shape[1] # (Time, Features)에서 Features 개수
         edges = list(itertools.permutations(range(node_num), 2))

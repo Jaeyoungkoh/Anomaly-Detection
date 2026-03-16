@@ -13,11 +13,11 @@ def str2bool(v):
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--seed', type=int, help='set seed if reproducibility is required', default=1) # seed 설정
-    parser.add_argument("--dataset", type=str, default='WADI', choices = ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'MSDS', 'synthetic', 'WADI'])
+    parser.add_argument("--dataset", type=str, default='SMD', choices = ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'MSDS', 'synthetic', 'WADI'])
     parser.add_argument('--sub_data_name', type=str, default=None, help='dataset name')
-    parser.add_argument('--model_name', type=str, default='Proposed_v2', choices=['AnomalyTransformer', 
+    parser.add_argument('--model_name', type=str, default='Proposed', choices=['AnomalyTransformer', 
                                                                             'MTAD_GAT',
                                                                             'GDN', 
                                                                             'TranAD',
@@ -32,7 +32,7 @@ def get_parser():
 
     # Train
     parser.add_argument('--patience', type=int, default=10, help = 'Early Stopping')
-    parser.add_argument('--num_epochs', type=int, default=None)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--win_size', type=int, default=None)
     parser.add_argument('--valid_split_rate', type=float, default=0.8)
@@ -65,7 +65,9 @@ def get_parser():
     parser.add_argument("--bias", type=str2bool, default=False)
     parser.add_argument("--use_residual", type=str2bool, default=False)
     parser.add_argument("--use_layer_norm", type=str2bool, default=False)
-    parser.add_argument("--use_activation", type=str2bool, default=False)            
+    parser.add_argument("--use_activation", type=str2bool, default=False)        
+
+    parser.add_argument('--moving_avg_kernel_size', type=int, default=25)
 
     # AnomalyTransformer   
     parser.add_argument('--k', type=int, default=3, help='anomaly Tranformer loss weight')     
@@ -108,7 +110,7 @@ def get_parser():
     parser.add_argument('--out_layer_num', help='outlayer num', type = int, default=1)
     parser.add_argument('--out_layer_inter_dim', help='out_layer_inter_dim', type = int, default=64) # 256
     parser.add_argument('--val_ratio', help='val ratio', type = float, default=0.1)
-    parser.add_argument('--topk', help='topk num', type = int, default=15)
+    parser.add_argument('--topk', help='topk num', type = int, default=10)
     parser.add_argument("--save_attention", type=str2bool, default=True)  
 
     # Model-agnostic Norm/Denorm

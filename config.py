@@ -5,7 +5,7 @@ TOTAL_CONFIG = {
             'test_dir': 'data/SMD/test/',
             'test_label_dir': 'data/SMD/labels/',
             'interpretation_label_dir': 'data/SMD/interpretation_label/',
-            'sub_data_name' : 'machine-1-1',   
+            'sub_data_name' : 'machine-1-7',   
             'slide_size' : 1,
         },
         'SWaT': {
@@ -68,7 +68,7 @@ TOTAL_CONFIG = {
             'win_size': 10,            
             'optimizer' : 'adamw',
             'scaler' : 'minmax',
-            'lr': 0.008, # 초기값
+            'lr': 0.0001, # 초기값
             'model_type' : 'reconstruction',
             'num_epochs' : 5            
         },
@@ -78,7 +78,7 @@ TOTAL_CONFIG = {
             'scaler' : 'minmax',
             'lr': 0.001,
             'model_type' : 'mix',
-            'num_epochs' : 50            
+            'num_epochs' : 30            
         },        
         'GDN': {
             'win_size': 5,            
@@ -86,7 +86,7 @@ TOTAL_CONFIG = {
             'scaler' : 'minmax',
             'lr': 0.001,
             'model_type' : 'forecasting',
-            'num_epochs' : 50         
+            'num_epochs' : 30         
         },
         'DualTransformer': {
             'win_size': 50,            
@@ -97,12 +97,13 @@ TOTAL_CONFIG = {
             'model_type' : 'reconstruction'
         },
         'Proposed': {
-            'win_size': 50,            
+            'win_size': 200,            
             'optimizer' : 'adamw',
             'lr': 0.0002,            
             'scaler' : 'minmax',
             'weight_decay' : 0.01,
-            'model_type' : 'reconstruction'
+            'model_type' : 'reconstruction',
+            'num_epochs' : 50
         },
         'Proposed_v2': {
             'win_size': 200,            
@@ -119,6 +120,7 @@ TOTAL_CONFIG = {
             'lr': 0.0002,            
             'scaler' : 'minmax',
             'weight_decay' : 0.01,
-            'model_type' : 'reconstruction'
+            'model_type' : 'reconstruction',
+            'num_epochs' : 50
         }
         }

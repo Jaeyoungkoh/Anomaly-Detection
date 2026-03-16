@@ -2,6 +2,80 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class moving_avg_zero_padding(nn.Module):
+    """
+    Zero-padding을 사용하여 시계열의 트렌드를 추출하는 이동 평균 블록
+    """
+    def __init__(self, kernel_size, stride):
+        super(moving_avg_zero_padding, self).__init__()
+        self.kernel_size = kernel_size
+        
+        # 양방향 패딩 길이 계산
+        pad_len = (kernel_size - 1) // 2
+        
+        # AvgPool1d의 padding 인자에 pad_len을 전달하여 Zero-padding을 내부적으로 처리
+        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=pad_len)
+
+    def forward(self, x):
+        # x 형태: [Batch, Length, Channel]
+        
+        # [Batch, Channel, Length] 형태로 축 변환
+        x = x.permute(0, 2, 1)
+        
+        # 패딩과 평균 풀링이 한 번에 적용됨
+        x = self.avg(x)
+        
+        # 다시 원래 형태인 [Batch, Length, Channel]로 복구
+        x = x.permute(0, 2, 1)
+        
+        return x
+
+class series_decomp_zero_padding(nn.Module):
+    """
+    Series decomposition block
+    """
+    def __init__(self, kernel_size):
+        super(series_decomp_zero_padding, self).__init__()
+        self.moving_avg = moving_avg(kernel_size, stride=1)
+
+    def forward(self, x):
+        # 입력 : B L C
+        moving_mean = self.moving_avg(x)
+        res = x - moving_mean
+        return res, moving_mean
+
+class moving_avg(nn.Module):
+    """
+    Moving average block to highlight the trend of time series
+    """
+    def __init__(self, kernel_size, stride):
+        super(moving_avg, self).__init__()
+        self.kernel_size = kernel_size
+        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=0)
+
+    def forward(self, x):
+        # padding on the both ends of time series
+        front = x[:, 0:1, :].repeat(1, (self.kernel_size - 1) // 2, 1) # B L C
+        end = x[:, -1:, :].repeat(1, (self.kernel_size - 1) // 2, 1)
+        x = torch.cat([front, x, end], dim=1)
+        x = self.avg(x.permute(0, 2, 1))
+        x = x.permute(0, 2, 1)
+        return x
+
+class series_decomp(nn.Module):
+    """
+    Series decomposition block
+    """
+    def __init__(self, kernel_size):
+        super(series_decomp, self).__init__()
+        self.moving_avg = moving_avg(kernel_size, stride=1)
+
+    def forward(self, x):
+        # 입력 : B L C
+        moving_mean = self.moving_avg(x)
+        res = x - moving_mean
+        return res, moving_mean
+
 class ConvLayer(nn.Module):
     """1-D Convolution layer to extract high-level features of each time-series input
     :param n_features: Number of input features/nodes (k)
@@ -16,8 +90,8 @@ class ConvLayer(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        # Input x : (b,n,k)
-        x = x.permute(0, 2, 1) # (b,k,n)
+        # Input x : B L C
+        x = x.permute(0, 2, 1) # B C L
         x = self.padding(x)
         x = self.relu(self.conv(x))
         return x.permute(0, 2, 1)  # Permute back

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from layers.attn_dual import FullAttention, AttentionLayer
 from layers.embed import DataEmbedding, PositionalEmbedding
 from layers.normalization import RevIN
-from layers.layers import CausalConvLayer, Forecasting_Model
+from layers.layers import Forecasting_Model, series_decomp, ConvLayer
 from layers.gatv2_layers import PyG_FeatureAttention
 
 class ChannelEmbedding(nn.Module):
@@ -112,6 +112,7 @@ class Proposed_v2(nn.Module):
         self.concat = args.concat
         self.forecast_hid_dim = args.fore_hid_dim
         self.forecast_n_layers = args.fore_n_layers
+        self.moving_avg_kernel_size = args.moving_avg_kernel_size
         self.kernel_size = args.kernel_size
         self.norm_type = args.norm_type
         self.affine = args.affine
@@ -129,8 +130,9 @@ class Proposed_v2(nn.Module):
         if self.norm_type == 'revin':
             self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
 
-        # self.conv = ConvLayer(self.enc_in, self.kernel_size)
-        self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
+        self.decomp = series_decomp(self.moving_avg_kernel_size)
+        self.conv = ConvLayer(self.enc_in, self.kernel_size)
+        # self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
 
         # # --- Branch 1: Temporal Attention Stream ---
         self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
@@ -172,26 +174,27 @@ class Proposed_v2(nn.Module):
         # x : (B, C, L) -> (B, L, C)
         x = x.permute(0, 2, 1)
 
-        # x_conv = self.conv(x) # (B,L,C)
-        x_conv = self.causal_conv(x) # (B,L,C)
+        res, trend = self.decomp(x) # (B,L,C)
+        res_conv = self.conv(res) # (B,L,C)
+        x_t = res_conv + trend
 
         if self.norm_type == 'revin':
-            x = self.norm(x, 'n')
+            x_norm = self.norm(x, 'n')
 
         # --- Branch 1: Temporal Attention --- #
-        temp_embed_out = self.temporal_embedding(x)
+        temp_embed_out = self.temporal_embedding(x_norm)
         temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
         temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
     
         # --- Branch 2: Channel Attention (PyG) --- #
         if edge_index is not None:
             # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
-            chan_enc_out, chan_series_list = self.feature_gat(x, edge_index) # Output: (B, L, C)
+            chan_enc_out, chan_series_list = self.feature_gat(x_norm, edge_index) # Output: (B, L, C)
         else:
             raise ValueError("edge_index must be provided for Proposed_v2 model")
 
         # --- Fusion --- #
-        fused_output = torch.cat([temp_dec_out, chan_enc_out, x_conv], dim=-1) # (B, L, 3C)
+        fused_output = torch.cat([temp_dec_out, chan_enc_out, x_t], dim=-1) # (B, L, 3C)
         final_output = self.forecasting_model(fused_output) # (B, L, C)
         final_output = final_output.permute(0,2,1) # (B, C, L)
         

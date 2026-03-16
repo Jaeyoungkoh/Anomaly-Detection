@@ -117,7 +117,7 @@ class Solver(object):
         # Channel 개수 추출
         first_batch = next(iter(self.train_loader))
 
-        if self.args.model_name in ['GDN', 'Proposed_v2']:
+        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3']:
             edge_index_sets = []
             _, self.args.input_c, _ = first_batch[0].shape
             edge_index = first_batch[-1]
@@ -243,7 +243,7 @@ class Solver(object):
             
             return np.average(loss)
 
-        elif self.args.model_name in ['Proposed_v2']:
+        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']:
 
             loss = []
 
@@ -277,7 +277,7 @@ class Solver(object):
 
             return np.average(loss)  
 
-        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v3']:
+        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'DualTransformer']:
 
             loss = []
 
@@ -405,7 +405,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['Proposed_v2']:
+                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']:
                     y = y.float().to(self.device)
                     edge_index = edge_index.long().to(self.device)
 
@@ -418,7 +418,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v3']:
+                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'DualTransformer']:
 
                     output, attns = self.model(input)
 
@@ -680,7 +680,7 @@ class Solver(object):
                     test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:   
-                    if self.args.model_name == 'Proposed_v2': 
+                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
 
