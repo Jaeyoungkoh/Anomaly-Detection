@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from layers.attn_dual import FullAttention, AttentionLayer
 from layers.embed import DataEmbedding, PositionalEmbedding
 from layers.normalization import RevIN
-from layers.layers import CausalConvLayer, Forecasting_Model
+from layers.layers import ConvLayer, Forecasting_Model
 from layers.gatv2_layers import PyG_FeatureAttention
 
 class ChannelEmbedding(nn.Module):
@@ -129,8 +129,8 @@ class Proposed(nn.Module):
         if self.norm_type == 'revin':
             self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
 
-        # self.conv = ConvLayer(self.enc_in, self.kernel_size)
-        self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
+        self.conv = ConvLayer(self.enc_in, self.kernel_size)
+        # self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
 
         # # --- Branch 1: Temporal Attention Stream ---
         self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
@@ -173,7 +173,7 @@ class Proposed(nn.Module):
         x = x.permute(0, 2, 1)
 
         # x_conv = self.conv(x) # (B,L,C)
-        x_conv = self.causal_conv(x) # (B,L,C)
+        x_conv = self.conv(x) # (B,L,C)
 
         if self.norm_type == 'revin':
             x = self.norm(x, 'n')

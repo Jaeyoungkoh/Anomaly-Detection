@@ -122,5 +122,14 @@ TOTAL_CONFIG = {
             'weight_decay' : 0.01,
             'model_type' : 'reconstruction',
             'num_epochs' : 50
+        },
+        'Proposed_v4': {
+            'win_size': 200,            
+            'optimizer' : 'adamw',
+            'lr': 0.0002,            
+            'scaler' : 'minmax',
+            'weight_decay' : 0.01,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 50            
         }
         }

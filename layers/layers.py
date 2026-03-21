@@ -10,18 +10,16 @@ class moving_avg_zero_padding(nn.Module):
         super(moving_avg_zero_padding, self).__init__()
         self.kernel_size = kernel_size
         
-        # 양방향 패딩 길이 계산
-        pad_len = (kernel_size - 1) // 2
-        
+        self.padding = nn.ConstantPad1d((kernel_size - 1) // 2, 0.0)
         # AvgPool1d의 padding 인자에 pad_len을 전달하여 Zero-padding을 내부적으로 처리
-        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=pad_len)
+        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=0)
 
     def forward(self, x):
         # x 형태: [Batch, Length, Channel]
         
         # [Batch, Channel, Length] 형태로 축 변환
         x = x.permute(0, 2, 1)
-        
+        x = self.padding(x)
         # 패딩과 평균 풀링이 한 번에 적용됨
         x = self.avg(x)
         
@@ -36,7 +34,7 @@ class series_decomp_zero_padding(nn.Module):
     """
     def __init__(self, kernel_size):
         super(series_decomp_zero_padding, self).__init__()
-        self.moving_avg = moving_avg(kernel_size, stride=1)
+        self.moving_avg = moving_avg_zero_padding(kernel_size, stride=1)
 
     def forward(self, x):
         # 입력 : B L C

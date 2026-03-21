@@ -17,6 +17,7 @@ from model.GDN import GDN
 from model.Proposed import Proposed
 from model.Proposed_v2 import Proposed_v2
 from model.Proposed_v3 import Proposed_v3
+from model.Proposed_v4 import Proposed_v4
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
 from torch.utils.tensorboard import SummaryWriter
@@ -105,7 +106,8 @@ class Solver(object):
             'DualTransformer' : DualTransformer,
             'Proposed' : Proposed,
             'Proposed_v2' : Proposed_v2,
-            'Proposed_v3' : Proposed_v3
+            'Proposed_v3' : Proposed_v3,
+            'Proposed_v4' : Proposed_v4
         }
 
         # self.train_loader = get_loader_segment(self.args, mode='train')
@@ -117,7 +119,7 @@ class Solver(object):
         # Channel 개수 추출
         first_batch = next(iter(self.train_loader))
 
-        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3']:
+        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
             edge_index_sets = []
             _, self.args.input_c, _ = first_batch[0].shape
             edge_index = first_batch[-1]
@@ -243,7 +245,7 @@ class Solver(object):
             
             return np.average(loss)
 
-        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']:
+        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
 
             loss = []
 
@@ -405,7 +407,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']:
+                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
                     y = y.float().to(self.device)
                     edge_index = edge_index.long().to(self.device)
 
@@ -513,7 +515,7 @@ class Solver(object):
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:         
+            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:         
 
                 rec_loss = np.average(recon_list)    
                 vali_loss = self.vali(self.vali_loader)  
@@ -679,8 +681,8 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:   
-                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3']: 
+                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:   
+                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
 
@@ -780,7 +782,7 @@ class Solver(object):
                 actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
-            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3']:
+            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)

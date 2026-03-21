@@ -25,7 +25,9 @@ def get_parser():
                                                                             'VTTSAT',
                                                                             'DualTransformer',
                                                                             'Proposed',
-                                                                            'Proposed_v2'])
+                                                                            'Proposed_v2',
+                                                                            'Proposed_v3',
+                                                                            'Proposed_v4'])
     parser.add_argument('--model_type', type=str, default=None, choices=['reconstruction', 'forecasting', 'mix'])    
     parser.add_argument("--device", type=str, default='cuda')
     parser.add_argument("--model_id", type=str, default=None, help="ID (datetime) of pretrained model to use, '-1' for latest, '-2' for second latest, etc")
@@ -42,7 +44,7 @@ def get_parser():
     # Proposed_v2
     parser.add_argument('--d_model_temp', type=int, default=512)   # 512  
     parser.add_argument('--d_ff_temp', type=int, default=None, choices = [512, None], help='if None, d_ff_temp = 4*d_model_temp')
-    parser.add_argument('--n_heads_temp', type=int, default=4)    
+    parser.add_argument('--n_heads_temp', type=int, default=1)    
     parser.add_argument('--e_layers_temp', type=int, default=4)
     parser.add_argument('--dropout_temp', type=float, default=0.2, help='dropout')
 
@@ -114,7 +116,7 @@ def get_parser():
     parser.add_argument("--save_attention", type=str2bool, default=True)  
 
     # Model-agnostic Norm/Denorm
-    parser.add_argument("--norm_type", type=str, default='revin', help=['revin', 'dish-ts', None])
+    parser.add_argument("--norm_type", type=str, default=None, help=['revin', 'dish-ts', None])
     parser.add_argument('--affine', type=int, default=0, help='RevIN-affine; True 1 False 0')  
     parser.add_argument('--subtract_last', type=int, default=1, help='0: subtract mean; 1: subtract last')  
 
