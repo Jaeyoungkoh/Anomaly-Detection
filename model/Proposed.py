@@ -125,81 +125,98 @@ class Proposed(nn.Module):
         self.bias = args.bias
         self.share_weights = args.share_weights
 
+        self.use_mid = args.use_mid
+        self.use_temporal = args.use_temporal
+        self.use_channel = args.use_channel
+
+        self.num_streams = int(self.use_mid) + int(self.use_temporal) + int(self.use_channel)
+        if self.num_streams == 0:
+            raise ValueError("At least one of use_mid, use_temporal, or use_channel must be True.")
 
         if self.norm_type == 'revin':
             self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
 
-        self.conv = ConvLayer(self.enc_in, self.kernel_size)
-        # self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
+        if self.use_mid:
+            self.conv = ConvLayer(self.enc_in, self.kernel_size)
 
         # # --- Branch 1: Temporal Attention Stream ---
-        self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
-        self.temporal_encoder = Encoder(
-            [
-                EncoderLayer(
-                    AttentionLayer(
-                        FullAttention(mask_flag=False, attention_dropout=self.dropout_temp, output_attention=self.output_attention),
-                        self.d_model_temp, self.n_heads_temp),
-                    self.d_model_temp, self.d_ff_temp, dropout=self.dropout_temp, activation=self.activation_temp
-                ) for _ in range(self.n_layers_temp)
-            ],
-            norm_layer=torch.nn.LayerNorm(self.d_model_temp)
-        )
-        self.temporal_decoder = nn.Linear(self.d_model_temp, self.enc_out)
+        if self.use_temporal:
+            self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
+            self.temporal_encoder = Encoder(
+                [
+                    EncoderLayer(
+                        AttentionLayer(
+                            FullAttention(mask_flag=False, attention_dropout=self.dropout_temp, output_attention=self.output_attention),
+                            self.d_model_temp, self.n_heads_temp),
+                        self.d_model_temp, self.d_ff_temp, dropout=self.dropout_temp, activation=self.activation_temp
+                    ) for _ in range(self.n_layers_temp)
+                ],
+                norm_layer=torch.nn.LayerNorm(self.d_model_temp)
+            )
+            self.temporal_decoder = nn.Linear(self.d_model_temp, self.enc_out)
 
         # --- Branch 2: Channel Attention Stream ---
-        self.feature_gat = PyG_FeatureAttention(in_channels=self.win_size, 
-                                                out_channels=self.d_model_gat, 
-                                                num_layers=self.n_layers_gat,
-                                                heads=self.n_heads_gat, 
-                                                concat=self.concat,
-                                                dropout=self.dropout_gat,
-                                                negative_slope=self.alpha,
-                                                add_self_loops=self.add_self_loops,
-                                                bias=self.bias,
-                                                share_weights=self.share_weights,
-                                                use_residual=self.use_residual,
-                                                use_layer_norm=self.use_layer_norm,  # LayerNorm 사용
-                                                use_activation=self.use_activation                                                
-                                                )
+        if self.use_channel:       
+            self.feature_gat = PyG_FeatureAttention(in_channels=self.win_size, 
+                                                    out_channels=self.d_model_gat, 
+                                                    num_layers=self.n_layers_gat,
+                                                    heads=self.n_heads_gat, 
+                                                    concat=self.concat,
+                                                    dropout=self.dropout_gat,
+                                                    negative_slope=self.alpha,
+                                                    add_self_loops=self.add_self_loops,
+                                                    bias=self.bias,
+                                                    share_weights=self.share_weights,
+                                                    use_residual=self.use_residual,
+                                                    use_layer_norm=self.use_layer_norm,  # LayerNorm 사용
+                                                    use_activation=self.use_activation                                                
+                                                    )
 
         # --- Fusion Layer ---
-        self.forecasting_model = Forecasting_Model(self.enc_out * 3, self.forecast_hid_dim, self.enc_out, self.forecast_n_layers, self.dropout_fore)
+        self.forecasting_model = Forecasting_Model(self.enc_out * self.num_streams, self.forecast_hid_dim, self.enc_out, self.forecast_n_layers, self.dropout_fore)
 
     def forward(self, x, edge_index=None):
 
         attns = {} # 시각화 데이터를 담을 딕셔너리
+        active_streams = []        
         # x : (B, C, L) -> (B, L, C)
         x = x.permute(0, 2, 1)
 
-        # x_conv = self.conv(x) # (B,L,C)
-        x_conv = self.conv(x) # (B,L,C)
+        if self.use_mid:
+            x_t = self.conv(x) # (B,L,C)
+            active_streams.append(x_t)
 
         if self.norm_type == 'revin':
-            x = self.norm(x, 'n')
+            x_norm = self.norm(x, 'n')
 
         # --- Branch 1: Temporal Attention --- #
-        temp_embed_out = self.temporal_embedding(x)
-        temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
-        temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
-    
+        if self.use_temporal:        
+            temp_embed_out = self.temporal_embedding(x_norm)
+            temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
+            temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
+            active_streams.append(temp_dec_out)            
+            if self.output_attention:
+                # 두 어텐션을 딕셔너리 형태로 반환하거나 필요에 맞게 가공
+                attns['temporal'] = temp_series_list[-1]    
+
         # --- Branch 2: Channel Attention (PyG) --- #
-        if edge_index is not None:
-            # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
-            chan_enc_out, chan_series_list = self.feature_gat(x, edge_index) # Output: (B, L, C)
-        else:
-            raise ValueError("edge_index must be provided for Proposed_v2 model")
+        if self.use_channel:        
+            if edge_index is not None:
+                # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
+                chan_enc_out, chan_series_list = self.feature_gat(x_norm, edge_index) # Output: (B, L, C)
+            else:
+                raise ValueError("edge_index must be provided for Proposed_v2 model")
+            active_streams.append(chan_enc_out)              
+            if self.output_attention:
+                # 두 어텐션을 딕셔너리 형태로 반환하거나 필요에 맞게 가공
+                attns['channel'] = chan_series_list
 
         # --- Fusion --- #
-        fused_output = torch.cat([temp_dec_out, chan_enc_out, x_conv], dim=-1) # (B, L, 3C)
+        fused_output = torch.cat(active_streams, dim=-1) # (B, L, 3C)
         final_output = self.forecasting_model(fused_output) # (B, L, C)
         final_output = final_output.permute(0,2,1) # (B, C, L)
         
         if self.output_attention:
-            # 두 어텐션을 딕셔너리 형태로 반환하거나 필요에 맞게 가공
-            attns['temporal'] = temp_series_list[-1]
-            attns['channel'] = chan_series_list
-
             return final_output, attns
         else:
             return final_output, None

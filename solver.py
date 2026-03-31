@@ -6,6 +6,7 @@ import pandas as pd
 import os
 import time
 from utils.utils import *
+from utils.diagnosis import hit_att, ndcg
 from eval_methods import *
 from model.AnomalyTransformer import AnomalyTransformer
 from model.DualTransformer import DualTransformer
@@ -18,12 +19,16 @@ from model.Proposed import Proposed
 from model.Proposed_v2 import Proposed_v2
 from model.Proposed_v3 import Proposed_v3
 from model.Proposed_v4 import Proposed_v4
+from model.Proposed_v5 import Proposed_v5
+from model.Proposed_v6 import Proposed_v6
+from model.Proposed_test import Proposed_test
+from model.Proposed_test_abl import Proposed_test_abl
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, ndcg_score
 import os
 from tqdm import tqdm
 
@@ -107,7 +112,11 @@ class Solver(object):
             'Proposed' : Proposed,
             'Proposed_v2' : Proposed_v2,
             'Proposed_v3' : Proposed_v3,
-            'Proposed_v4' : Proposed_v4
+            'Proposed_v4' : Proposed_v4,
+            'Proposed_v5' : Proposed_v5,
+            'Proposed_v6' : Proposed_v6,
+            'Proposed_test' : Proposed_test,
+            'Proposed_test_abl' : Proposed_test_abl
         }
 
         # self.train_loader = get_loader_segment(self.args, mode='train')
@@ -119,7 +128,7 @@ class Solver(object):
         # Channel 개수 추출
         first_batch = next(iter(self.train_loader))
 
-        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
+        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
             edge_index_sets = []
             _, self.args.input_c, _ = first_batch[0].shape
             edge_index = first_batch[-1]
@@ -188,9 +197,9 @@ class Solver(object):
 
                 for u in range(len(prior)):
                     series_loss += (torch.mean(my_kl_loss(series[u], (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach())) + 
-                                    torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach(),series[u])))
+                                torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach(),series[u])))
                     prior_loss += (torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)),series[u].detach())) + 
-                                   torch.mean(my_kl_loss(series[u].detach(),(prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)))))
+                                torch.mean(my_kl_loss(series[u].detach(),(prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)))))
 
                 series_loss = series_loss / len(prior)
                 prior_loss = prior_loss / len(prior)
@@ -245,7 +254,7 @@ class Solver(object):
             
             return np.average(loss)
 
-        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
+        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
 
             loss = []
 
@@ -407,7 +416,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
+                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
                     y = y.float().to(self.device)
                     edge_index = edge_index.long().to(self.device)
 
@@ -443,8 +452,8 @@ class Solver(object):
 
                 early_stopping(vali_loss1, vali_loss2, self.model, path)
                 if early_stopping.early_stop:
-                     print("Early stopping")
-                     break
+                    print("Early stopping")
+                    break
                 
                 if self.args.adjust_lr is True:        
                     adjust_learning_rate(self.optimizer, epoch + 1, self.args.lr)
@@ -465,7 +474,7 @@ class Solver(object):
 
                 if self.es_counter >= self.es_patience:
                     print(f"\nEarly stopping triggered after"
-                          f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
+                        f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
                     break   
 
             elif self.args.model_name in ['MTAD_GAT']:         
@@ -491,7 +500,7 @@ class Solver(object):
 
                 if self.es_counter >= self.es_patience:
                     print(f"\nEarly stopping triggered after"
-                          f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
+                        f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
                     break                     
 
 
@@ -510,12 +519,12 @@ class Solver(object):
 
                 if self.es_counter >= self.es_patience:
                     print(f"\nEarly stopping triggered after"
-                          f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
+                        f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
                     break     
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:         
+            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:         
 
                 rec_loss = np.average(recon_list)    
                 vali_loss = self.vali(self.vali_loader)  
@@ -538,7 +547,7 @@ class Solver(object):
 
                 if self.es_counter >= self.es_patience:
                     print(f"\nEarly stopping triggered after"
-                          f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
+                        f"{epoch+1 } epochs. Best val-total : {self.best_val_total:.6f}\n")
                     break
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_start))
@@ -548,7 +557,7 @@ class Solver(object):
 
 
     def test(self):
-        self.model.load_state_dict(torch.load(os.path.join(self.args.save_path, "model.pt")))
+        self.model.load_state_dict(torch.load(os.path.join(self.args.save_path, "model.pt"), weights_only=True))
         self.model.eval()
         self.temperature = self.args.temperature
 
@@ -565,6 +574,7 @@ class Solver(object):
         att_scores = []
         temporal_att_storage = {}
         channel_att_storage = {}
+        gate_att_storage = {}
 
         with torch.no_grad():
             for i, (input_data, y, labels, edge_index) in enumerate(self.test_loader):
@@ -577,6 +587,9 @@ class Solver(object):
                     prior_loss = 0.0                
 
                     loss = torch.mean(criterion(input, output), dim=-1)
+
+                    #rmse로 적용할 때
+                    loss = torch.sqrt(loss)
 
                     for u in range(len(prior)):
                         if u == 0:
@@ -681,8 +694,8 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:   
-                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']: 
+                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:   
+                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
 
@@ -693,7 +706,7 @@ class Solver(object):
                     else:
                         output, attn = self.model(input) # B, L, C
                         loss = torch.mean(criterion(input, output), dim=-1)  
-                                      
+
                     mse = loss.detach().cpu().numpy()
 
                     actuals.append(input.detach().cpu().numpy())
@@ -703,12 +716,21 @@ class Solver(object):
 
                     if self.args.output_attention:
                         # 마지막 Layer의 attention score
-                        temp_attn_raw = attn['temporal'] # (B,H,L,L)
-                        chan_attn_raw = attn['channel'] # (B,C,C)
+                        # 1. 딕셔너리에 키가 없을 경우 KeyError가 나지 않도록 get() 사용
+                        temp_attn_raw = attn.get('temporal', None) # (B,H,L,L)
+                        chan_attn_raw = attn.get('channel', None) # (B,C,C)
+                        gate_weights_raw = attn.get('gate_weights', None)
 
                         # Multi-Head 평균
-                        temp_attn_avg = torch.mean(temp_attn_raw, dim=1) # Shape: (B, L, L)
-                        chan_attn_avg = chan_attn_raw # Shape: (B, C, C)
+                        if temp_attn_raw is not None:
+                            temp_attn_avg = torch.mean(temp_attn_raw, dim=1) # Shape: (B, L, L)
+                        else:
+                            temp_attn_avg = None
+
+                        if chan_attn_raw is not None:
+                            chan_attn_avg = chan_attn_raw # Shape: (B, C, C)
+                        else:
+                            chan_attn_avg = None
 
                         bs = input_data.size(0)
                         win_size = self.args.win_size
@@ -723,8 +745,14 @@ class Solver(object):
                             window_key = (start_idx, end_index)
 
                             # Value: 해당 윈도우의 Attention map (시각화를 위해 numpy로 변환)
-                            temporal_att_storage[window_key] = temp_attn_avg[j].detach().cpu().numpy()
-                            channel_att_storage[window_key] = chan_attn_avg[j].detach().cpu().numpy()
+                            if temp_attn_raw is not None:
+                                temporal_att_storage[window_key] = temp_attn_avg[j].detach().cpu().numpy()
+                            
+                            if chan_attn_raw is not None:
+                                channel_att_storage[window_key] = chan_attn_avg[j].detach().cpu().numpy()
+                        
+                            if gate_weights_raw is not None:
+                                gate_att_storage[window_key] = gate_weights_raw[j].detach().cpu().numpy()
 
             if self.args.model_name == 'AnomalyTransformer':
 
@@ -782,7 +810,7 @@ class Solver(object):
                 actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
-            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4']:
+            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -793,8 +821,12 @@ class Solver(object):
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
                 if self.args.output_attention:
-                    np.save(os.path.join(self.args.save_path, f'temporal_att_storage.npy'), temporal_att_storage)
-                    np.save(os.path.join(self.args.save_path, f'channel_att_storage.npy'), channel_att_storage)
+                    if temporal_att_storage:
+                        np.save(os.path.join(self.args.save_path, f'temporal_att_storage.npy'), temporal_att_storage)
+                    if channel_att_storage:
+                        np.save(os.path.join(self.args.save_path, f'channel_att_storage.npy'), channel_att_storage)
+                    if gate_att_storage:
+                        np.save(os.path.join(self.args.save_path, f'gate_att_storage.npy'), gate_att_storage)
                     print("Attention maps saved successfully.")
 
 
@@ -831,12 +863,35 @@ class Solver(object):
                 df_dict[f"A_Score_{i}"] = a_score
 
             a_scores_mean = np.mean(anomaly_scores, 1)
-            df_dict['A_Score_Global'] = a_scores_mean
-            test_df = pd.DataFrame(df_dict)
 
-            # PA%K(=100) AUC
-            # scores = test_mse.copy()
-            scores = a_scores_mean.copy()
+            # ==================== 수정된 부분 ====================
+            if self.args.model_name == 'AnomalyTransformer':
+                # AnomalyTransformer는 metric이 반영된 test_mse(cri)를 최종 Global Score로 사용
+                df_dict['A_Score_Global'] = test_mse
+                test_df = pd.DataFrame(df_dict)
+                scores = test_mse.copy()
+            else:
+                # 다른 모델들은 Reconstruction 기반의 a_scores_mean을 사용
+                df_dict['A_Score_Global'] = a_scores_mean
+                test_df = pd.DataFrame(df_dict)
+                scores = a_scores_mean.copy()
+            # =====================================================
+
+            # ==================== [추가] 원인 진단(Diagnosis) 계산 ====================
+            aligned_label_2d = getattr(self.test_loader.dataset, 'aligned_label_2d', None)
+            hit_res, ndcg_res = {}, {}
+
+            if aligned_label_2d.ndim == 3:
+                aligned_label_2d = aligned_label_2d.reshape(-1, aligned_label_2d.shape[-1])
+
+                hit_res = hit_att(anomaly_scores, aligned_label_2d)
+                ndcg_res = ndcg(anomaly_scores, aligned_label_2d)
+                
+                print(f"HitRate Results: {hit_res}")
+                print(f"NDCG Results: {ndcg_res}\n")
+            # =======================================================================
+
+
             attack = test_labels.copy()   
             start=np.percentile(scores, 50)
             end=np.percentile(scores, 99)                      
@@ -905,6 +960,16 @@ class Solver(object):
                     f.write(f"{k:<6}{precision:<12.4f}{recall:<10.4f}{f1:<10.4f}{roc_auc:<10.4f}{threshold:<10.4f}\n")
 
                 f.write(f"\nPA%K AUC: {auc:.4f}\n")
+
+                # [추가] Diagnosis 결과 기록
+                if hit_res or ndcg_res:
+                    f.write("\n" + "="*60 + "\n")
+                    f.write("Diagnosis Performance (HitRate & NDCG)\n")
+                    f.write("="*60 + "\n")
+                    for k, v in hit_res.items():
+                        f.write(f"{k}: {v:.4f}\n")
+                    for k, v in ndcg_res.items():
+                        f.write(f"{k}: {v:.4f}\n")
 
             print("-- Done.")
 

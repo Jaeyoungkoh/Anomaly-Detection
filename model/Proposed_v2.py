@@ -126,15 +126,15 @@ class Proposed_v2(nn.Module):
         self.bias = args.bias
         self.share_weights = args.share_weights
 
+        self.use_denorm = args.use_denorm
 
         if self.norm_type == 'revin':
             self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
 
         self.decomp = series_decomp(self.moving_avg_kernel_size)
         self.conv = ConvLayer(self.enc_in, self.kernel_size)
-        # self.causal_conv = CausalConvLayer(self.enc_in, self.kernel_size)
-
-        # # --- Branch 1: Temporal Attention Stream ---
+ 
+        # # # --- Branch 1: Temporal Attention Stream ---
         self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
         self.temporal_encoder = Encoder(
             [
@@ -149,7 +149,7 @@ class Proposed_v2(nn.Module):
         )
         self.temporal_decoder = nn.Linear(self.d_model_temp, self.enc_out)
 
-        # --- Branch 2: Channel Attention Stream ---
+        # # --- Branch 2: Channel Attention Stream ---
         self.feature_gat = PyG_FeatureAttention(in_channels=self.win_size, 
                                                 out_channels=self.d_model_gat, 
                                                 num_layers=self.n_layers_gat,
@@ -185,11 +185,17 @@ class Proposed_v2(nn.Module):
         temp_embed_out = self.temporal_embedding(x_norm)
         temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
         temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
-    
-        # --- Branch 2: Channel Attention (PyG) --- #
+        if self.use_denorm:
+            temp_dec_out = self.norm(temp_dec_out, 'd')
+        # temp_dec_out = self.norm_temp(temp_dec_out)
+        
+        # # # # --- Branch 2: Channel Attention (PyG) --- #
         if edge_index is not None:
             # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
             chan_enc_out, chan_series_list = self.feature_gat(x_norm, edge_index) # Output: (B, L, C)
+            if self.use_denorm:
+                chan_enc_out = self.norm(chan_enc_out, 'd')
+            # chan_enc_out = self.norm_chan(chan_enc_out)
         else:
             raise ValueError("edge_index must be provided for Proposed_v2 model")
 

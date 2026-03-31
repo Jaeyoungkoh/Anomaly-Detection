@@ -1,0 +1,265 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from layers.attn_dual import FullAttention, AttentionLayer
+from layers.embed import DataEmbedding, PositionalEmbedding
+from layers.normalization import RevIN
+from layers.layers import Forecasting_Model, series_decomp, ConvLayer
+from layers.gatv2_layers import PyG_FeatureAttention
+
+class ChannelEmbedding(nn.Module):
+    """
+    Channel-wise 입력을 위한 임베딩 클래스.
+    입력 shape: (B, C, L)
+    (B, C, L) -> (B, C, d_model)로 변환합니다.
+    """
+    def __init__(self, c_in, d_model, dropout=0.0):
+        super(ChannelEmbedding, self).__init__()
+        # c_in은 이제 채널 수(C)가 아니라 시퀀스 길이(L)가 됩니다.
+        # 각 채널의 L 길이 시계열을 d_model 차원의 벡터로 변환
+        self.value_embedding = nn.Linear(c_in, d_model, bias=False)
+        # Positional Embedding은 채널의 위치를 인코딩하는데 재사용
+        self.position_embedding = PositionalEmbedding(d_model=d_model)
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, x):
+        # x shape: (B, C, L)
+        # value_embedding을 통과시키면 (B, C, d_model)
+        # position_embedding은 (B, C, d_model)의 C 차원에 대한 위치 정보를 더해줌
+        x = self.value_embedding(x) + self.position_embedding(x)
+        return self.dropout(x)
+
+
+class EncoderLayer(nn.Module):
+    def __init__(self, attention, d_model, d_ff=None, dropout=0.1, activation="relu"):
+        super(EncoderLayer, self).__init__()
+        d_ff = d_ff or 4 * d_model
+        self.attention = attention
+        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
+        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = F.relu if activation == "relu" else F.gelu
+
+    def forward(self, x, attn_mask=None):
+
+        # Multi-Head Attention (Pre-LN)
+        new_x, attn = self.attention(x, x, x, attn_mask=attn_mask)
+        # Residual            
+        x = x + self.dropout(new_x)
+        # LN1
+        y = x = self.norm1(x) # B, L, D
+        # FF            
+        y = self.dropout(self.activation(self.conv1(y.transpose(-1, 1))))
+        y = self.dropout(self.conv2(y).transpose(-1, 1))
+        # Residual            
+        x = x + y
+        # LN2            
+        x = self.norm2(x)
+
+        return x, attn
+
+
+class Encoder(nn.Module):
+    def __init__(self, attn_layers, norm_layer=None):
+        super(Encoder, self).__init__()
+        self.attn_layers = nn.ModuleList(attn_layers)
+        self.norm = norm_layer
+
+    def forward(self, x, attn_mask=None):
+        # x [B, L, D]
+        series_list = []
+ 
+        for attn_layer in self.attn_layers:
+            x, series = attn_layer(x, attn_mask=attn_mask)
+            series_list.append(series)
+
+        if self.norm is not None:
+            x = self.norm(x)
+
+        return x, series_list
+
+
+class Proposed_test_abl(nn.Module):
+    def __init__(self, args):
+
+        super(Proposed_test_abl, self).__init__()
+
+        self.output_attention = args.output_attention
+        self.enc_in = args.input_c
+        self.enc_out = args.input_c
+
+        self.d_model_temp = args.d_model_temp 
+        self.dropout_temp = args.dropout_temp
+
+        self.d_model_gat = args.d_model_gat               
+        self.dropout_gat = args.dropout_gat
+        self.dropout_fore = args.dropout_fore
+        self.alpha = args.alpha
+    
+        self.gat_type = args.gat_type
+        self.use_node_embedding = args.use_node_embedding
+        self.win_size = args.win_size
+        self.n_heads_temp = args.n_heads_temp
+        self.n_heads_gat = args.n_heads_gat
+        self.n_layers_temp = args.e_layers_temp
+        self.n_layers_gat = args.e_layers_gat
+
+        self.d_ff_temp = args.d_ff_temp
+        self.activation_temp = 'gelu'
+        self.activation_chan = 'gelu'
+        self.concat = args.concat
+        self.forecast_hid_dim = args.fore_hid_dim
+        self.forecast_n_layers = args.fore_n_layers
+        self.moving_avg_kernel_size = args.moving_avg_kernel_size
+        self.kernel_size = args.kernel_size
+        self.norm_type = args.norm_type
+        self.affine = args.affine
+        self.subtract_last = args.subtract_last
+        self.use_gatv2 = args.use_gatv2
+        self.use_residual = args.use_residual
+        self.use_layer_norm = args.use_layer_norm
+        self.use_activation = args.use_activation
+
+        self.add_self_loops = args.add_self_loops
+        self.bias = args.bias
+        self.share_weights = args.share_weights
+
+        self.use_decomp = args.use_decomp
+        self.use_denorm = args.use_denorm
+        self.use_mid = args.use_mid
+        self.use_temporal = args.use_temporal
+        self.use_channel = args.use_channel
+
+        # 활성화된 스트림의 개수 계산 (1, 2, 또는 3)
+        self.num_streams = int(self.use_mid) + int(self.use_temporal) + int(self.use_channel)
+        if self.num_streams == 0:
+            raise ValueError("At least one of use_mid, use_temporal, or use_channel must be True.")
+        
+        if self.norm_type == 'revin':
+            self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
+            
+        if self.use_mid:
+            if self.use_decomp:
+                self.decomp = series_decomp(self.moving_avg_kernel_size)
+            self.conv = ConvLayer(self.enc_in, self.kernel_size)
+
+        # # # --- Branch 1: Temporal Attention Stream ---
+        if self.use_temporal:
+            self.temporal_embedding = DataEmbedding(self.enc_in, self.d_model_temp, self.dropout_temp)
+            self.temporal_encoder = Encoder(
+                [
+                    EncoderLayer(
+                        AttentionLayer(
+                            FullAttention(mask_flag=False, attention_dropout=self.dropout_temp, output_attention=self.output_attention),
+                            self.d_model_temp, self.n_heads_temp),
+                        self.d_model_temp, self.d_ff_temp, dropout=self.dropout_temp, activation=self.activation_temp
+                    ) for _ in range(self.n_layers_temp)
+                ],
+                norm_layer=torch.nn.LayerNorm(self.d_model_temp)
+            )
+            self.temporal_decoder = nn.Linear(self.d_model_temp, self.enc_out)
+
+        # # --- Branch 2: Channel Attention Stream ---
+        if self.use_channel:
+            self.feature_gat = PyG_FeatureAttention(in_channels=self.win_size, 
+                                                    out_channels=self.d_model_gat, 
+                                                    num_layers=self.n_layers_gat,
+                                                    heads=self.n_heads_gat, 
+                                                    concat=self.concat,
+                                                    dropout=self.dropout_gat,
+                                                    negative_slope=self.alpha,
+                                                    add_self_loops=self.add_self_loops,
+                                                    bias=self.bias,
+                                                    share_weights=self.share_weights,
+                                                    use_residual=self.use_residual,
+                                                    use_layer_norm=self.use_layer_norm,  # LayerNorm 사용
+                                                    use_activation=self.use_activation                                                
+                                                    )
+        
+        if self.num_streams > 1:
+            self.gate = nn.Linear(self.enc_out * self.num_streams, self.num_streams)
+        else:
+            self.gate = None  # 스트림이 1개면 Gate가 불필요함  
+
+
+        # --- Fusion Layer ---
+        self.forecasting_model = Forecasting_Model(self.enc_out * self.num_streams, self.forecast_hid_dim, self.enc_out, self.forecast_n_layers, self.dropout_fore)
+
+    def forward(self, x, edge_index=None):
+
+        attns = {} # 시각화 데이터를 담을 딕셔너리
+        # x : (B, C, L) -> (B, L, C)
+        x = x.permute(0, 2, 1)
+
+        if self.norm_type == 'revin':
+            x_norm = self.norm(x, 'n')
+        else:
+            x_norm = x
+
+        active_streams = []
+
+        if self.use_mid:
+            if self.use_decomp:
+                res, trend = self.decomp(x) # (B,L,C)
+                res_conv = self.conv(res) # (B,L,C)
+                x_t = res_conv + trend
+            else:
+                x_t = self.conv(x) # (B,L,C)
+            active_streams.append(x_t)
+
+        # --- Branch 1: Temporal Attention --- #
+        if self.use_temporal:
+            temp_embed_out = self.temporal_embedding(x_norm)
+            temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
+            temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
+            if self.use_denorm:
+                temp_dec_out = self.norm(temp_dec_out, 'd')
+            active_streams.append(temp_dec_out)
+        
+            if self.output_attention:
+                attns['temporal'] = temp_series_list[-1]
+
+        # --- Branch 2: Channel Attention (PyG) --- #
+        if self.use_channel:
+            if edge_index is not None:
+                # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
+                chan_enc_out, chan_series_list = self.feature_gat(x_norm, edge_index) # Output: (B, L, C)
+                if self.use_denorm:
+                    chan_enc_out = self.norm(chan_enc_out, 'd')
+                active_streams.append(chan_enc_out)
+
+                if self.output_attention:
+                    attns['channel'] = chan_series_list
+            else:
+                raise ValueError("edge_index must be provided for Proposed_v2 model")
+
+        # --- Fusion --- #
+        stream_output = torch.cat(active_streams, dim=-1)
+        
+        # 스트림이 2개 이상일 때만 Gate 적용
+        if self.num_streams > 1:
+            gate_weights = F.softmax(self.gate(stream_output), dim=-1) # (B, L, num_streams)
+            
+            # 각각의 스트림에 해당하는 weight 분리 (크기 1인 튜플 형태로 반환됨)
+            split_weights = gate_weights.split(1, dim=-1)
+            
+            # 각 스트림에 weight 곱하기
+            gated_streams = [stream * weight for stream, weight in zip(active_streams, split_weights)]
+            fused_output = torch.cat(gated_streams, dim=-1)
+            
+            if self.output_attention:
+                attns['gate_weights'] = gate_weights
+        else:
+            # 스트림이 1개일 경우 Gating 생략
+            fused_output = stream_output
+
+        # Final Forecasting
+        final_output = self.forecasting_model(fused_output) # (B, L, C)
+        final_output = final_output.permute(0, 2, 1)        # (B, C, L)
+        
+        if self.output_attention:
+            return final_output, attns
+        else:
+            return final_output, None

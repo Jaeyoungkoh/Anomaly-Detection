@@ -13,11 +13,11 @@ def str2bool(v):
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
     parser.add_argument('--seed', type=int, help='set seed if reproducibility is required', default=1) # seed 설정
-    parser.add_argument("--dataset", type=str, default='SMD', choices = ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'MSDS', 'synthetic', 'WADI'])
+    parser.add_argument("--dataset", type=str, default='COLLECTOR', choices = ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'MSDS', 'synthetic', 'synthetic_cp', 'WADI'])
     parser.add_argument('--sub_data_name', type=str, default=None, help='dataset name')
-    parser.add_argument('--model_name', type=str, default='Proposed', choices=['AnomalyTransformer', 
+    parser.add_argument('--model_name', type=str, default='Proposed_v5', choices=['AnomalyTransformer', 
                                                                             'MTAD_GAT',
                                                                             'GDN', 
                                                                             'TranAD',
@@ -27,14 +27,18 @@ def get_parser():
                                                                             'Proposed',
                                                                             'Proposed_v2',
                                                                             'Proposed_v3',
-                                                                            'Proposed_v4'])
+                                                                            'Proposed_v4',
+                                                                            'Proposed_v5',
+                                                                            'Proposed_v6',
+                                                                            'Proposed_test',
+                                                                            'Proposed_test_abl'])
     parser.add_argument('--model_type', type=str, default=None, choices=['reconstruction', 'forecasting', 'mix'])    
     parser.add_argument("--device", type=str, default='cuda')
     parser.add_argument("--model_id", type=str, default=None, help="ID (datetime) of pretrained model to use, '-1' for latest, '-2' for second latest, etc")
 
     # Train
     parser.add_argument('--patience', type=int, default=10, help = 'Early Stopping')
-    parser.add_argument('--num_epochs', type=int, default=50)
+    parser.add_argument('--num_epochs', type=int, default=None)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--win_size', type=int, default=None)
     parser.add_argument('--valid_split_rate', type=float, default=0.8)
@@ -112,17 +116,22 @@ def get_parser():
     parser.add_argument('--out_layer_num', help='outlayer num', type = int, default=1)
     parser.add_argument('--out_layer_inter_dim', help='out_layer_inter_dim', type = int, default=64) # 256
     parser.add_argument('--val_ratio', help='val ratio', type = float, default=0.1)
-    parser.add_argument('--topk', help='topk num', type = int, default=10)
+    parser.add_argument('--topk', help='topk num', type = int, default=5)
     parser.add_argument("--save_attention", type=str2bool, default=True)  
 
     # Model-agnostic Norm/Denorm
-    parser.add_argument("--norm_type", type=str, default=None, help=['revin', 'dish-ts', None])
+    parser.add_argument("--norm_type", type=str, default='revin', help=['revin', 'dish-ts', None])
     parser.add_argument('--affine', type=int, default=0, help='RevIN-affine; True 1 False 0')  
-    parser.add_argument('--subtract_last', type=int, default=1, help='0: subtract mean; 1: subtract last')  
+    parser.add_argument('--subtract_last', type=int, default=0, help='0: subtract mean; 1: subtract last')  
 
     # ETC
     parser.add_argument("--save_auc_curve", type=str2bool, default=True) 
     parser.add_argument("--output_attention", type=str2bool, default=True) 
     parser.add_argument("--log_tensorboard", type=str2bool, default=True)    
 
+    parser.add_argument('--use_denorm', type=str2bool, default=True) 
+    parser.add_argument('--use_decomp', type=str2bool, default=True)
+    parser.add_argument('--use_mid', type=str2bool, default=True) 
+    parser.add_argument('--use_temporal', type=str2bool, default=True) 
+    parser.add_argument('--use_channel', type=str2bool, default=True)
     return parser

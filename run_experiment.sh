@@ -10,16 +10,23 @@ chmod +x run_experiment.sh
 #!/bin/bash
 
 #실행할 파라미터 배열 정의
-dataset=(COLLECTOR)
+dataset=(SMD)
 # n_heads_temp=(1 4)
-# seed=(316 423 777)
-seed=(1 7 77 316 423 777 1004 1011 1234 2025)
+# seed=(1 7 77 316 423 777 1004 1011 1234 2025)
+seed=(2025)
 # n_heads_temp=(1 4)
-model_name=(Proposed_v2)
-# model_name=(P)
-# sub_data_name=(machine-2-9)
-sub_data_name=(None)
-mode=(train test)
+model_name=(Proposed)
+# use_decomp=(True)
+# use_denorm=(False)
+n_heads_temp=(1)
+use_temporal=(True)
+model_id=(30032026_131624)
+sub_data_name=(machine-3-10)
+# sub_data_name=(C-1 D-14 D-15 D-16 F-8 M-1 M-2)
+# sub_data_name=(A-7 D-7 E-3 F-2 G-7 P-7 S-1)
+# sub_data_name=(A-7 D-7 E-3 F-2 G-7 P-7 S-1 C-1 D-14 D-15 D-16 F-8 M-1 M-2)
+# sub_data_name=(machine-1-1 machine-1-6 machine-1-7 machine-2-9 machine-3-4 machine-3-10)
+mode=(test)
 
 echo "실험을 시작합니다..."
 
@@ -30,14 +37,20 @@ do
   do
     for v3 in "${model_name[@]}"
     do
-      for v4 in "${sub_data_name[@]}"
+      for v4 in "${n_heads_temp[@]}"
       do
-        for v5 in "${mode[@]}"
-        do        
-          echo "-------------------------------------"
-          echo "Running with dataset=${v1} seed=${v2} model_name=${v3} & sub_data_name=${v4} & mode=${v5}"
-          # main.py 실행
-          python main.py --dataset ${v1} --seed ${v2} --model_name ${v3} --sub_data_name ${v4} --mode ${v5}
+        for v5 in "${model_id[@]}"
+        do    
+          for v6 in "${sub_data_name[@]}"
+          do
+            for v7 in "${mode[@]}"
+            do        
+              echo "-------------------------------------"
+              echo "Running with dataset=${v1} seed=${v2} model_name=${v3} & n_heads_temp=${v4} & model_id=${v5} & sub_data_name=${v6} & mode=${v7}"
+              # main.py 실행
+              python main.py --dataset ${v1} --seed ${v2} --model_name ${v3} --n_heads_temp ${v4} --model_id ${v5} --sub_data_name ${v6} --mode ${v7}
+            done
+          done
         done
       done
     done  

@@ -72,7 +72,7 @@ if __name__ == '__main__':
         if args.model_id is None:
             dir_path = f"output/{args.dataset}/{args.model_name}"
             dir_content = os.listdir(dir_path)
-            subfolders = [subf for subf in dir_content if os.path.isdir(f"{dir_path}/{subf}") and subf != "logs"]
+            subfolders = [subf for subf in dir_content if os.path.isdir(f"{dir_path}/{subf}") and subf not in ["logs", "backup"]]
             date_times = [datetime.datetime.strptime(subf, '%d%m%Y_%H%M%S') for subf in subfolders]
             date_times.sort()
             model_datetime = date_times[-1]

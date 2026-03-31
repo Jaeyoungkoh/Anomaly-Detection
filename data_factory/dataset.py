@@ -90,9 +90,10 @@ def convertNumpy(df):
 def load_dataset(args):
 
     valid_split_rate = args.valid_split_rate
+    test_label_2d = None  # [추가] 다른 데이터셋을 위해 기본값 None으로 초기화
 
     try:
-        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'synthetic', 'WADI']
+        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'synthetic', 'synthetic_cp', 'WADI']
     except AssertionError as e:
         raise ValueError(f"Invalid dataname: {args.dataset}")
 
@@ -111,8 +112,10 @@ def load_dataset(args):
         train_raw = pd.read_csv(args.train_dir, header=None).to_numpy()
         split = 10000
 
-        trainset = train_raw[:, :split].reshape(split, -1)
-        testset = train_raw[:, split:].reshape(split, -1)      
+        # trainset = train_raw[:, :split].reshape(split, -1)
+        # testset = train_raw[:, split:].reshape(split, -1)      
+        trainset = train_raw[:, :split].T
+        testset = train_raw[:, split:].T 
 
         valid_split_index = int(len(trainset) * valid_split_rate)    
         validset = trainset[valid_split_index:]
@@ -133,6 +136,25 @@ def load_dataset(args):
         testset += test_label * np.random.normal(0.75, 0.1, testset.shape)
 
         test_label = test_label.max(axis=1)
+
+    elif args.dataset == 'synthetic_cp':
+        # 1. 이미 CP와 이상치가 주입 완료된 Train / Test 데이터를 바로 로드 (헤더 없음)
+        # 주의: main.py 실행 시 args.train_path, args.test_path에 새로 만든 csv 경로가 연결되어야 합니다.
+        trainset = pd.read_csv(args.train_path, header=None).values
+        testset = pd.read_csv(args.test_path, header=None).values
+
+        # 2. Validation 셋 분할 (기존 로직 유지)
+        valid_split_index = int(len(trainset) * valid_split_rate)    
+        validset = trainset[valid_split_index:]
+        trainset = trainset[:valid_split_index]  
+
+        # 3. 라벨 데이터 로드
+        # 새로 만든 라벨은 이미 (10000 x 30) 크기의 0과 1로 구성된 행렬입니다.
+        test_label_matrix = pd.read_csv(args.test_label_path, header=None).values
+        
+        # 4. 1차원 라벨로 통합 (모델 평가용)
+        # 여러 채널(센서) 중 단 하나라도 1(이상치)이 발생했다면, 해당 시점 전체를 1로 간주
+        test_label = test_label_matrix.max(axis=1)
 
     elif args.dataset == 'WADI':
 
@@ -174,17 +196,32 @@ def load_dataset(args):
 
     elif args.dataset == 'SMD':
         trainset = np.loadtxt(os.path.join(args.train_dir, f'{args.sub_data_name}.txt'),
-                              delimiter=',', 
-                              dtype=np.float32)
+                            delimiter=',', 
+                            dtype=np.float32)
         valid_split_index = int(len(trainset) * valid_split_rate)
         validset = trainset[valid_split_index:]
         trainset = trainset[:valid_split_index]
         testset = np.loadtxt(os.path.join(args.test_dir, f'{args.sub_data_name}.txt'),
-                             delimiter=',',
-                             dtype=np.float32)
+                            delimiter=',',
+                            dtype=np.float32)
         test_label = np.loadtxt(os.path.join(args.test_label_dir, f'{args.sub_data_name}.txt'),
                                 delimiter=',',
                                 dtype=int)
+        
+        # [추가] 2D Interpretation Label 적용 (Diagnosis 목적)
+        if hasattr(args, 'interpretation_label_dir') and args.interpretation_label_dir:
+            interp_path = os.path.join(args.interpretation_label_dir, f'{args.sub_data_name}.txt')
+            if os.path.exists(interp_path):
+                test_label_2d = np.zeros(testset.shape, dtype=int)
+                with open(interp_path, "r") as f:
+                    ls = f.readlines()
+                for line in ls:
+                    pos, values = line.split(':')[0], line.split(':')[1].split(',')
+                    start, end = int(pos.split('-')[0]), int(pos.split('-')[1])
+                    indx = [int(i)-1 for i in values]
+                    test_label_2d[start-1:end, indx] = 1 
+            else:
+                print(f"Warning: {interp_path} not found. 2D diagnosis will be skipped.")
 
     elif args.dataset == 'SMAP_MSL':
         trainset = np.load(os.path.join(args.train_dir, f'{args.sub_data_name}.npy'))
@@ -210,7 +247,7 @@ def load_dataset(args):
         trainset = trainset[:valid_split_index]
         test_label = pd.read_csv(args.test_label_path, header=None).values
 
-    return trainset, validset, testset, test_label
+    return trainset, validset, testset, test_label, test_label_2d
 
 
 def construct_data(data_np: np.ndarray, labels: Union[int, list, np.ndarray] = 0):
@@ -248,12 +285,12 @@ class SlidingWindowDataset(Dataset):
     (사용자가 제공한 원본 코드)
     """
     def __init__(self, 
-                 raw_data, 
-                 edge_index, 
-                 mode='train', 
-                 config = None, 
-                 boundary_index: Optional[Union[int, List[int]]]=None
-                 ):
+                raw_data, 
+                edge_index, 
+                mode='train', 
+                config = None, 
+                boundary_index: Optional[Union[int, List[int]]]=None
+                ):
         
         self.raw_data = raw_data
         self.edge_index = edge_index      
@@ -271,7 +308,7 @@ class SlidingWindowDataset(Dataset):
 
         # to tensor
         data = torch.tensor(data).float() # torch.float64
-        labels = torch.tensor(labels).float() # torch.float64
+        labels = torch.tensor(np.array(labels)).float() # torch.float64
 
         self.x, self.y, self.labels = self.process(data, labels)
 
@@ -282,11 +319,11 @@ class SlidingWindowDataset(Dataset):
             self.boundary_index = boundary_index
 
         if boundary_index is not None:
-             print("Warning: boundary_index logic not fully implemented. Using simpler range.")
-             # process 함수에서 이미 샘플을 다 만들었으므로, self.x의 길이를 사용
-             self.valid_indices = list(range(len(self.x)))
+            print("Warning: boundary_index logic not fully implemented. Using simpler range.")
+            # process 함수에서 이미 샘플을 다 만들었으므로, self.x의 길이를 사용
+            self.valid_indices = list(range(len(self.x)))
         else:
-             # process 함수에서 이미 샘플을 다 만들었으므로, self.x의 길이를 사용
+            # process 함수에서 이미 샘플을 다 만들었으므로, self.x의 길이를 사용
             self.valid_indices = list(range(len(self.x)))
 
         print(f"{self.mode} : # of valid windows: {len(self.valid_indices)}")
@@ -314,7 +351,7 @@ class SlidingWindowDataset(Dataset):
 
         # 결정된 stride 적용
         rang = range(self.slide_window, self.total_time_len, current_stride)
-       
+
         for i in rang:
             window = data[:, i-self.slide_window:i] 
             if self.model_type == 'reconstruction':
@@ -332,8 +369,8 @@ class SlidingWindowDataset(Dataset):
 
         if not x_arr:
             return torch.empty(0, self.node_num, self.slide_window).float(), \
-                   torch.empty(0, self.node_num).float(), \
-                   torch.empty(0).float()
+                torch.empty(0, self.node_num).float(), \
+                torch.empty(0).float()
         
         # List -> Tensor 변환
         # x = torch.stack(x_arr).contiguous()
