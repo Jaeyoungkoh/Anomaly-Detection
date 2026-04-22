@@ -9,7 +9,7 @@ from utils.utils import *
 from utils.diagnosis import hit_att, ndcg
 from eval_methods import *
 from model.AnomalyTransformer import AnomalyTransformer
-from model.DualTransformer import DualTransformer
+from model.Proposed_v1 import Proposed_v1
 from model.VTTPAT import VTTPAT
 from model.VTTSAT import VTTSAT
 from model.TranAD import TranAD
@@ -108,7 +108,7 @@ class Solver(object):
             'TranAD' : TranAD,
             'VTTPAT' : VTTPAT,
             'VTTSAT' : VTTSAT,
-            'DualTransformer' : DualTransformer,
+            'Proposed_v1' : Proposed_v1,
             'Proposed' : Proposed,
             'Proposed_v2' : Proposed_v2,
             'Proposed_v3' : Proposed_v3,
@@ -288,7 +288,7 @@ class Solver(object):
 
             return np.average(loss)  
 
-        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'DualTransformer']:
+        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed_v1']:
 
             loss = []
 
@@ -339,9 +339,9 @@ class Solver(object):
                     prior_loss = 0.0
                     for u in range(len(prior)):
                         series_loss += (torch.mean(my_kl_loss(series[u], (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach())) + 
-                                        torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach(),series[u])))
+                                    torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)).detach(),series[u])))
                         prior_loss += (torch.mean(my_kl_loss((prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)),series[u].detach())) + 
-                                       torch.mean(my_kl_loss(series[u].detach(), (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)))))
+                                    torch.mean(my_kl_loss(series[u].detach(), (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,self.args.win_size)))))
 
                     series_loss = series_loss / len(prior)
                     prior_loss = prior_loss / len(prior)
@@ -429,7 +429,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'DualTransformer']:
+                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed_v1']:
 
                     output, attns = self.model(input)
 
@@ -524,7 +524,7 @@ class Solver(object):
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:         
+            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:         
 
                 rec_loss = np.average(recon_list)    
                 vali_loss = self.vali(self.vali_loader)  
@@ -694,7 +694,7 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:   
+                elif self.args.model_name in ['Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:   
                     if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
@@ -810,7 +810,7 @@ class Solver(object):
                 actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
-            elif self.args.model_name in ['Proposed', 'DualTransformer', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
+            elif self.args.model_name in ['Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -877,18 +877,23 @@ class Solver(object):
                 scores = a_scores_mean.copy()
             # =====================================================
 
-            # ==================== [추가] 원인 진단(Diagnosis) 계산 ====================
-            aligned_label_2d = getattr(self.test_loader.dataset, 'aligned_label_2d', None)
-            hit_res, ndcg_res = {}, {}
+            # # ==================== [추가] 원인 진단(Diagnosis) 계산 ====================
+            # aligned_label_2d = getattr(self.test_loader.dataset, 'aligned_label_2d', None)
+            # hit_res, ndcg_res = {}, {}
 
-            if aligned_label_2d.ndim == 3:
-                aligned_label_2d = aligned_label_2d.reshape(-1, aligned_label_2d.shape[-1])
-
-                hit_res = hit_att(anomaly_scores, aligned_label_2d)
-                ndcg_res = ndcg(anomaly_scores, aligned_label_2d)
-                
-                print(f"HitRate Results: {hit_res}")
-                print(f"NDCG Results: {ndcg_res}\n")
+            # # aligned_label_2d가 존재하는 경우(예: SMD)에만 계산 로직 실행
+            # if aligned_label_2d is not None:
+            #     if aligned_label_2d.ndim == 3:
+            #         aligned_label_2d = aligned_label_2d.reshape(-1, aligned_label_2d.shape[-1])
+            
+            #     hit_res = hit_att(anomaly_scores, aligned_label_2d)
+            #     ndcg_res = ndcg(anomaly_scores, aligned_label_2d)
+                    
+            #     print(f"HitRate Results: {hit_res}")
+            #     print(f"NDCG Results: {ndcg_res}\n")
+            # else:
+            #     # 2D 레이블이 없는 경우(예: SWaT) 자연스럽게 패스
+            #     pass
             # =======================================================================
 
 
@@ -962,14 +967,26 @@ class Solver(object):
                 f.write(f"\nPA%K AUC: {auc:.4f}\n")
 
                 # [추가] Diagnosis 결과 기록
-                if hit_res or ndcg_res:
-                    f.write("\n" + "="*60 + "\n")
-                    f.write("Diagnosis Performance (HitRate & NDCG)\n")
-                    f.write("="*60 + "\n")
-                    for k, v in hit_res.items():
-                        f.write(f"{k}: {v:.4f}\n")
-                    for k, v in ndcg_res.items():
-                        f.write(f"{k}: {v:.4f}\n")
+                # if hit_res or ndcg_res:
+                #     f.write("\n" + "="*60 + "\n")
+                #     f.write("Diagnosis Performance (HitRate & NDCG)\n")
+                #     f.write("="*60 + "\n")
+                    
+                #     # 1. 두 딕셔너리가 None일 경우를 대비해 빈 딕셔너리로 초기화
+                #     hit_dict = hit_res if hit_res else {}
+                #     ndcg_dict = ndcg_res if ndcg_res else {}
+                    
+                #     # 2. Key(컬럼 이름)와 Value(결과값)를 각각 하나의 리스트로 합치기
+                #     keys = list(hit_dict.keys()) + list(ndcg_dict.keys())
+                #     values = list(hit_dict.values()) + list(ndcg_dict.values())
+                    
+                #     # 3. 구분 기호 없이 12칸 간격으로 우측 정렬하여 띄어쓰기만 적용
+                #     header = "".join([f"{k:>12}" for k in keys])
+                #     row = "".join([f"{v:>12.4f}" for v in values])
+                    
+                #     # 파일에 기록
+                #     f.write(header + "\n")
+                #     f.write(row + "\n")
 
             print("-- Done.")
 

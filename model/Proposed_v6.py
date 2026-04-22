@@ -125,7 +125,6 @@ class Proposed_v6(nn.Module):
         self.bias = args.bias
         self.share_weights = args.share_weights
 
-
         if self.norm_type == 'revin':
             self.norm = RevIN(num_features=self.enc_in, affine=self.affine, subtract_last=self.subtract_last)
 
@@ -162,7 +161,6 @@ class Proposed_v6(nn.Module):
                                                 use_layer_norm=self.use_layer_norm,  # LayerNorm 사용
                                                 use_activation=self.use_activation                                                
                                                 )
-
         # --- Fusion Layer ---
         self.forecasting_model = Forecasting_Model(self.enc_out * 3, self.forecast_hid_dim, self.enc_out, self.forecast_n_layers, self.dropout_fore)
 
@@ -181,15 +179,11 @@ class Proposed_v6(nn.Module):
         temp_embed_out = self.temporal_embedding(x)
         temp_enc_out, temp_series_list = self.temporal_encoder(temp_embed_out) # (B, L, d_model)
         temp_dec_out = self.temporal_decoder(temp_enc_out) # (B, L, d_model) -> (B, L, C)
-        if self.norm_type == 'revin':
-            temp_dec_out = self.norm(temp_dec_out, 'd')
 
         # --- Branch 2: Channel Attention (PyG) --- #
         if edge_index is not None:
             # edge_index: (Batch, 2, E) 형태로 들어오면, PyG_FeatureAttention 내부에서 처리
-            chan_enc_out, chan_series_list = self.feature_gat(x, edge_index) # Output: (B, L, C)
-            if self.norm_type == 'revin':
-                chan_enc_out = self.norm(chan_enc_out, 'd')            
+            chan_enc_out, chan_series_list = self.feature_gat(x, edge_index) # Output: (B, L, C)  
         else:
             raise ValueError("edge_index must be provided for Proposed_v2 model")
 

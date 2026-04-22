@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers.gatv2_conv_PyG import GATv2Conv
+import dgl
+from layers.gatv2_conv_DGL import GATv2ConvDGL
 from torch_geometric.utils import to_dense_adj
 
-class PyG_FeatureAttention(nn.Module):
+class DGL_FeatureAttention(nn.Module):
     def __init__(self, 
                 in_channels,               # Window Size (L)
                 out_channels,              # GAT Hidden Dimension (D)
@@ -29,7 +30,7 @@ class PyG_FeatureAttention(nn.Module):
         self.heads = heads
         self.concat = concat
         self.num_layers = num_layers
-        self.negative_slope = negative_slope
+        self.add_self_loops = add_self_loops
         self.use_residual = use_residual
         self.use_layer_norm = use_layer_norm
         self.use_activation = use_activation
@@ -59,17 +60,18 @@ class PyG_FeatureAttention(nn.Module):
         for i in range(num_layers):
             # graph_model.py 스타일: Layer 생성
             self.layers.append(
-                GATv2Conv(
-                    in_channels=self.hidden_dim,    # 전체 차원 입력
-                    out_channels=self.head_dim,     # Head 당 차원
-                    heads=heads, 
-                    concat=concat,
-                    negative_slope=negative_slope,
-                    dropout=dropout, 
-                    add_self_loops=add_self_loops,
-                    bias=bias,
-                    share_weights=share_weights
-                )
+                GATv2ConvDGL(
+                            in_feats=self.hidden_dim, 
+                            out_feats=self.head_dim, 
+                            num_heads=heads,
+                            feat_drop=dropout,
+                            attn_drop=dropout,
+                            negative_slope=negative_slope,
+                            residual=False, # Custom 잔차 연결을 위해 내부 residual은 끕니다.
+                            bias=bias,
+                            share_weights=share_weights,
+                            allow_zero_in_degree=True # 고립된 노드 에러 방지
+                        )
             )
         # 결과가 Concat 되면: head_dim * heads = hidden_dim (원복됨)
         if self.use_layer_norm:
@@ -92,11 +94,11 @@ class PyG_FeatureAttention(nn.Module):
         
         # 1. PyG 입력을 위해 차원 변경 (Node = Channel, Feature = Time Length)
         # (B, L, C) -> (B, C, L)
-        x = x.permute(0, 2, 1) 
+        x_origin = x.permute(0, 2, 1) 
         
         # Flatten: (Batch * Channel, Length) -> PyG는 (N, D) 형태를 받음
         # x_flat = x.reshape(B * C, L)
-        x = x.reshape(B * C, L)
+        x = x_origin.reshape(B * C, L)
         
         # 2. Embedding Step (L -> Hidden)
         x = self.embedding(x)
@@ -110,8 +112,19 @@ class PyG_FeatureAttention(nn.Module):
         else:
             target_edge_index = edge_index
 
-        # (2, E) -> (2, B*E) 배치 확장
+        # 수정 후 (DGL 어댑터)
         batch_edge_index = get_batch_edge_index(target_edge_index, B, C).to(device)
+        src, dst = batch_edge_index[0], batch_edge_index[1]
+        # DGL 그래프 객체 생성 (노드 수는 B * C)
+        dgl_g = dgl.graph((src, dst), num_nodes=B * C).to(device)
+
+        # 3. ★ PyG의 Self-loop 로직 완벽 대체 ★
+        if self.add_self_loops:
+            # 혹시 모를 중복 엣지(Multiple self-loops) 방지를 위해 기존 것을 싹 지움
+            dgl_g = dgl.remove_self_loop(dgl_g) 
+    
+            # 모든 노드에 대해 안전하게 exactly 1개의 self-loop 추가
+            dgl_g = dgl.add_self_loop(dgl_g)
 
         # 3. Layer Loop
         attn_map = None # 마지막 레이어의 Attention Map 저장용
@@ -121,14 +134,28 @@ class PyG_FeatureAttention(nn.Module):
             return_attn = (i == self.num_layers - 1)
             
             if return_attn:
-                new_x, (edge_idx_ret, alpha) = self.layers[i](x, batch_edge_index, return_attention_weights=True)
+                # DGL 레이어 호출: graph 객체와 feat 전달
+                new_x, alpha = self.layers[i](dgl_g, x, get_attention=True)
+            
+                # PyG 호환을 위해 alpha shape 변경: (E, H, 1) -> (E, H)
+                alpha = alpha.squeeze(-1) 
+                # 변경 코드: Self-loop가 반영된 dgl_g에서 최신 엣지 인덱스를 직접 뽑아냅니다.
+                u, v = dgl_g.edges()
+                edge_idx_ret = torch.stack([u, v], dim=0)
             else:
-                new_x = self.layers[i](x, batch_edge_index)
+                new_x = self.layers[i](dgl_g, x, get_attention=False)
+
+
+            # *** 핵심: DGL은 (N, H, D_out)을 반환하므로 Concat 처리를 직접 해야 함 ***
+            N, H, D_out = new_x.shape
+            if self.concat:
+                new_x = new_x.view(N, H * D_out) # PyG의 concat=True 와 동일
+            else:
+                new_x = new_x.mean(dim=1)        # PyG의 concat=False 와 동일
 
             # (2) Activation
             if self.use_activation:
                 new_x = F.elu(new_x)
-                # new_x = F.leaky_relu(new_x, self.negative_slope)
             
             # (3) Residual Connection
             # 차원이 맞을 때만 수행 (첫 레이어 등에서 차원 다르면 skip하거나 projection 필요하지만, 
@@ -141,9 +168,9 @@ class PyG_FeatureAttention(nn.Module):
             # (4) Layer Norm
             if self.use_layer_norm:
                 x = self.layer_norms[i](x)
-
-            # (5) Dropout
-            x = F.dropout(x, p=self.dropout_p, training=self.training)
+            
+                # (5) Dropout
+                x = F.dropout(x, p=self.dropout_p, training=self.training)
 
         # 4. Dense Attention Map Transformation (Visualization)
         # 마지막 레이어에서 얻은 alpha를 Dense Matrix로 변환

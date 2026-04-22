@@ -15,16 +15,16 @@ from torch_geometric.nn.inits import glorot, zeros
 
 class GATv2Conv(MessagePassing):
     def __init__(self, 
-                 in_channels: int,
-                 out_channels: int, 
-                 heads: int = 1, 
-                 concat: bool = True,
-                 negative_slope: float = 0.2, 
-                 dropout: float = 0.,
-                 add_self_loops: bool = True, 
-                 bias: bool = True,
-                 share_weights: bool = False
-                 ):
+                in_channels: int,
+                out_channels: int, 
+                heads: int = 1, 
+                concat: bool = True,
+                negative_slope: float = 0.2, 
+                dropout: float = 0.,
+                add_self_loops: bool = True, 
+                bias: bool = True,
+                share_weights: bool = False
+                ):
         super(GATv2Conv, self).__init__(node_dim=0, aggr='add')
 
         self.in_channels = in_channels
@@ -77,8 +77,12 @@ class GATv2Conv(MessagePassing):
 
         if isinstance(x, Tensor):
             assert x.dim() == 2, 'Static graphs not supported in `GATConv`.'
-            x_l = x_r = self.lin_l(x).view(-1, H, C)
-
+            # x_l = x_r = self.lin_l(x).view(-1, H, C)
+            x_l = self.lin_l(x).view(-1, H, C)            
+            if self.share_weights:
+                x_r = x_l
+            else:
+                x_r = self.lin_r(x).view(-1, H, C)
         else:
             x_l, x_r = x[0], x[1]
             assert x[0].dim() == 2, 'Static graphs not supported in `GATConv`.'
@@ -106,7 +110,7 @@ class GATv2Conv(MessagePassing):
         self._alpha = None
 
         if self.concat:
-            out = out.view(-1, self.heads * self.out_channels)
+            out = out.view(-1, self.heads * self.out_channels) # [480, 200]
         else:
             out = out.mean(dim=1)
 

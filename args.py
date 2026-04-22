@@ -13,18 +13,18 @@ def str2bool(v):
 
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--seed', type=int, help='set seed if reproducibility is required', default=1) # seed 설정
     parser.add_argument("--dataset", type=str, default='COLLECTOR', choices = ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'MSDS', 'synthetic', 'synthetic_cp', 'WADI'])
     parser.add_argument('--sub_data_name', type=str, default=None, help='dataset name')
-    parser.add_argument('--model_name', type=str, default='Proposed_v5', choices=['AnomalyTransformer', 
+    parser.add_argument('--model_name', type=str, default='Proposed_v6', choices=['AnomalyTransformer', 
                                                                             'MTAD_GAT',
                                                                             'GDN', 
                                                                             'TranAD',
                                                                             'VTTPAT',
                                                                             'VTTSAT',
-                                                                            'DualTransformer',
                                                                             'Proposed',
+                                                                            'Proposed_v1',
                                                                             'Proposed_v2',
                                                                             'Proposed_v3',
                                                                             'Proposed_v4',
@@ -52,7 +52,7 @@ def get_parser():
     parser.add_argument('--e_layers_temp', type=int, default=4)
     parser.add_argument('--dropout_temp', type=float, default=0.2, help='dropout')
 
-    parser.add_argument('--d_model_gat', type=int, default=None, help='d_model_gat')  # 200
+    parser.add_argument('--d_model_gat', type=int, default=400, help='d_model_gat')  # 200
     parser.add_argument('--d_ff_channel', type=int, default=None, choices = ['win_size', None], help='if None, d_ff = 4*d_model_gat')
     parser.add_argument('--n_heads_gat', type=int, default=1, help='num_head_gat')     
     parser.add_argument('--e_layers_gat', type=int, default=1)        
@@ -70,8 +70,8 @@ def get_parser():
     parser.add_argument("--add_self_loops", type=str2bool, default=True)
     parser.add_argument("--bias", type=str2bool, default=False)
     parser.add_argument("--use_residual", type=str2bool, default=False)
-    parser.add_argument("--use_layer_norm", type=str2bool, default=False)
-    parser.add_argument("--use_activation", type=str2bool, default=False)        
+    parser.add_argument("--use_layer_norm", type=str2bool, default=True)
+    parser.add_argument("--use_activation", type=str2bool, default=True)        
 
     parser.add_argument('--moving_avg_kernel_size', type=int, default=25)
 
@@ -116,13 +116,13 @@ def get_parser():
     parser.add_argument('--out_layer_num', help='outlayer num', type = int, default=1)
     parser.add_argument('--out_layer_inter_dim', help='out_layer_inter_dim', type = int, default=64) # 256
     parser.add_argument('--val_ratio', help='val ratio', type = float, default=0.1)
-    parser.add_argument('--topk', help='topk num', type = int, default=5)
+    parser.add_argument('--topk', help='topk num', type = int, default=10)
     parser.add_argument("--save_attention", type=str2bool, default=True)  
 
     # Model-agnostic Norm/Denorm
     parser.add_argument("--norm_type", type=str, default='revin', help=['revin', 'dish-ts', None])
-    parser.add_argument('--affine', type=int, default=0, help='RevIN-affine; True 1 False 0')  
-    parser.add_argument('--subtract_last', type=int, default=0, help='0: subtract mean; 1: subtract last')  
+    parser.add_argument('--affine', type=int, default=1, help='RevIN-affine; True 1 False 0')  
+    parser.add_argument('--subtract_last', type=int, default=1, help='0: subtract mean; 1: subtract last')  
 
     # ETC
     parser.add_argument("--save_auc_curve", type=str2bool, default=True) 

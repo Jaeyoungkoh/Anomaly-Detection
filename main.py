@@ -4,6 +4,7 @@ from torch.backends import cudnn
 from utils.utils import *
 import datetime
 import argparse
+import dgl
 from solver import Solver
 from config import TOTAL_CONFIG
 import random
@@ -30,6 +31,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True        # deterministic 연산 강제 (재현 가능성 ↑)
     torch.backends.cudnn.benchmark = False   
     torch.use_deterministic_algorithms(False)
+    dgl.random.seed(args.seed)
 
     args.output_path = f'output/{args.dataset}/{args.model_name}' # output/dataset/model_name
     args.log_dir = f'{args.output_path}/logs'

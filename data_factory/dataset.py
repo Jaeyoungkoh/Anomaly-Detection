@@ -93,7 +93,7 @@ def load_dataset(args):
     test_label_2d = None  # [추가] 다른 데이터셋을 위해 기본값 None으로 초기화
 
     try:
-        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'synthetic', 'synthetic_cp', 'WADI']
+        assert args.dataset in ['SWaT', 'SMD', 'SMAP_MSL', 'COLLECTOR', 'synthetic', 'WADI']
     except AssertionError as e:
         raise ValueError(f"Invalid dataname: {args.dataset}")
 
@@ -137,24 +137,24 @@ def load_dataset(args):
 
         test_label = test_label.max(axis=1)
 
-    elif args.dataset == 'synthetic_cp':
-        # 1. 이미 CP와 이상치가 주입 완료된 Train / Test 데이터를 바로 로드 (헤더 없음)
-        # 주의: main.py 실행 시 args.train_path, args.test_path에 새로 만든 csv 경로가 연결되어야 합니다.
-        trainset = pd.read_csv(args.train_path, header=None).values
-        testset = pd.read_csv(args.test_path, header=None).values
+    # elif args.dataset == 'synthetic_cp':
+    #     # 1. 이미 CP와 이상치가 주입 완료된 Train / Test 데이터를 바로 로드 (헤더 없음)
+    #     # 주의: main.py 실행 시 args.train_path, args.test_path에 새로 만든 csv 경로가 연결되어야 합니다.
+    #     trainset = pd.read_csv(args.train_path, header=None).values
+    #     testset = pd.read_csv(args.test_path, header=None).values
 
-        # 2. Validation 셋 분할 (기존 로직 유지)
-        valid_split_index = int(len(trainset) * valid_split_rate)    
-        validset = trainset[valid_split_index:]
-        trainset = trainset[:valid_split_index]  
+    #     # 2. Validation 셋 분할 (기존 로직 유지)
+    #     valid_split_index = int(len(trainset) * valid_split_rate)    
+    #     validset = trainset[valid_split_index:]
+    #     trainset = trainset[:valid_split_index]  
 
-        # 3. 라벨 데이터 로드
-        # 새로 만든 라벨은 이미 (10000 x 30) 크기의 0과 1로 구성된 행렬입니다.
-        test_label_matrix = pd.read_csv(args.test_label_path, header=None).values
+    #     # 3. 라벨 데이터 로드
+    #     # 새로 만든 라벨은 이미 (10000 x 30) 크기의 0과 1로 구성된 행렬입니다.
+    #     test_label_matrix = pd.read_csv(args.test_label_path, header=None).values
         
-        # 4. 1차원 라벨로 통합 (모델 평가용)
-        # 여러 채널(센서) 중 단 하나라도 1(이상치)이 발생했다면, 해당 시점 전체를 1로 간주
-        test_label = test_label_matrix.max(axis=1)
+    #     # 4. 1차원 라벨로 통합 (모델 평가용)
+    #     # 여러 채널(센서) 중 단 하나라도 1(이상치)이 발생했다면, 해당 시점 전체를 1로 간주
+    #     test_label = test_label_matrix.max(axis=1)
 
     elif args.dataset == 'WADI':
 
@@ -209,19 +209,19 @@ def load_dataset(args):
                                 dtype=int)
         
         # [추가] 2D Interpretation Label 적용 (Diagnosis 목적)
-        if hasattr(args, 'interpretation_label_dir') and args.interpretation_label_dir:
-            interp_path = os.path.join(args.interpretation_label_dir, f'{args.sub_data_name}.txt')
-            if os.path.exists(interp_path):
-                test_label_2d = np.zeros(testset.shape, dtype=int)
-                with open(interp_path, "r") as f:
-                    ls = f.readlines()
-                for line in ls:
-                    pos, values = line.split(':')[0], line.split(':')[1].split(',')
-                    start, end = int(pos.split('-')[0]), int(pos.split('-')[1])
-                    indx = [int(i)-1 for i in values]
-                    test_label_2d[start-1:end, indx] = 1 
-            else:
-                print(f"Warning: {interp_path} not found. 2D diagnosis will be skipped.")
+        # if hasattr(args, 'interpretation_label_dir') and args.interpretation_label_dir:
+        #     interp_path = os.path.join(args.interpretation_label_dir, f'{args.sub_data_name}.txt')
+        #     if os.path.exists(interp_path):
+        #         test_label_2d = np.zeros(testset.shape, dtype=int)
+        #         with open(interp_path, "r") as f:
+        #             ls = f.readlines()
+        #         for line in ls:
+        #             pos, values = line.split(':')[0], line.split(':')[1].split(',')
+        #             start, end = int(pos.split('-')[0]), int(pos.split('-')[1])
+        #             indx = [int(i)-1 for i in values]
+        #             test_label_2d[start-1:end, indx] = 1 
+        #     else:
+        #         print(f"Warning: {interp_path} not found. 2D diagnosis will be skipped.")
 
     elif args.dataset == 'SMAP_MSL':
         trainset = np.load(os.path.join(args.train_dir, f'{args.sub_data_name}.npy'))
@@ -247,7 +247,8 @@ def load_dataset(args):
         trainset = trainset[:valid_split_index]
         test_label = pd.read_csv(args.test_label_path, header=None).values
 
-    return trainset, validset, testset, test_label, test_label_2d
+    # return trainset, validset, testset, test_label, test_label_2d
+    return trainset, validset, testset, test_label
 
 
 def construct_data(data_np: np.ndarray, labels: Union[int, list, np.ndarray] = 0):

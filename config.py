@@ -57,21 +57,12 @@ TOTAL_CONFIG = {
             'lr': 0.0001,
             'model_type' : 'reconstruction',
             'slide_size' : 1
-        },
-        'AnomalyTransformer': {
-            'win_size': 100,            
-            'optimizer' : 'adam',
-            'scaler' : 'standard',
-            'lr': 0.0001,
-            'model_type' : 'reconstruction',
-            'num_epochs' : 3,
-            'slide_size' : 100            
-        },        
+        },    
         'TranAD': {
             'win_size': 10,            
             'optimizer' : 'adamw',
             'scaler' : 'minmax',
-            'lr': 0.002, # 초기값
+            'lr': 0.0001, # 초기값
             'model_type' : 'reconstruction',
             'num_epochs' : 5,
             'slide_size' : 1            
@@ -104,6 +95,16 @@ TOTAL_CONFIG = {
             'slide_size' : 1
         },
         'Proposed': {
+            'win_size': 200,            
+            'optimizer' : 'adamw',
+            'lr': 0.0002,            
+            'scaler' : 'minmax',
+            'weight_decay' : 0.01,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 50,
+            'slide_size' : 1
+        },
+        'Proposed_v1': {
             'win_size': 200,            
             'optimizer' : 'adamw',
             'lr': 0.0002,            
@@ -161,7 +162,7 @@ TOTAL_CONFIG = {
             'weight_decay' : 0.01,
             'model_type' : 'reconstruction',
             'num_epochs' : 50,
-            'slide_size' : 1            
+            'slide_size' : 1          
         },
         'Proposed_test': {
             'win_size': 200,            

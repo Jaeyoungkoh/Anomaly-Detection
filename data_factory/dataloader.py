@@ -5,38 +5,38 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import itertools # <--- [추가] GDN의 edge_index 생성용
 
 # [추가] 1D Dataset의 추출 인덱스를 그대로 본따서 2D 라벨을 동기화하는 헬퍼 함수
-def get_aligned_label_2d(dataset, raw_label_2d, args):
-    if raw_label_2d is None:
-        return None    
+# def get_aligned_label_2d(dataset, raw_label_2d, args):
+#     if raw_label_2d is None:
+#         return None    
     
-    aligned_2d = []
+#     aligned_2d = []
     
-    # [핵심 추가] SlidingWindowDataset의 진짜 타임스탬프(끝점) 리스트 사전 생성
-    if hasattr(dataset, 'valid_indices'):
-        current_stride = dataset.slide_window if args.model_type == 'reconstruction' else 1
-        real_time_indices = list(range(dataset.slide_window, dataset.total_time_len, current_stride))
+#     # [핵심 추가] SlidingWindowDataset의 진짜 타임스탬프(끝점) 리스트 사전 생성
+#     if hasattr(dataset, 'valid_indices'):
+#         current_stride = dataset.slide_window if args.model_type == 'reconstruction' else 1
+#         real_time_indices = list(range(dataset.slide_window, dataset.total_time_len, current_stride))
 
-    for idx in range(len(dataset)):
+#     for idx in range(len(dataset)):
         
-        # 1. BuildDataset 방식을 사용하는 모델 (AnomalyTransformer 등)
-        if hasattr(dataset, 'valid_idxs'):
-            index = dataset.valid_idxs[idx] # 모델이 사용하는 진짜 인덱스 
-            if args.model_type == 'reconstruction':
-                aligned_2d.append(raw_label_2d[index : index + args.win_size])
-            else:
-                aligned_2d.append(raw_label_2d[index + args.win_size])
+#         # 1. BuildDataset 방식을 사용하는 모델 (AnomalyTransformer 등)
+#         if hasattr(dataset, 'valid_idxs'):
+#             index = dataset.valid_idxs[idx] # 모델이 사용하는 진짜 인덱스 
+#             if args.model_type == 'reconstruction':
+#                 aligned_2d.append(raw_label_2d[index : index + args.win_size])
+#             else:
+#                 aligned_2d.append(raw_label_2d[index + args.win_size])
                 
-        # 2. SlidingWindowDataset 방식을 사용하는 모델 (GDN, Proposed 등)
-        elif hasattr(dataset, 'valid_indices'):
-            # [핵심 수정] 단순 순번(0,1,2..) 대신, 진짜 타임스탬프 배열에서 끝점(i)을 꺼내서 매핑
-            index = real_time_indices[idx] 
+#         # 2. SlidingWindowDataset 방식을 사용하는 모델 (GDN, Proposed 등)
+#         elif hasattr(dataset, 'valid_indices'):
+#             # [핵심 수정] 단순 순번(0,1,2..) 대신, 진짜 타임스탬프 배열에서 끝점(i)을 꺼내서 매핑
+#             index = real_time_indices[idx] 
             
-            if args.model_type == 'reconstruction':
-                aligned_2d.append(raw_label_2d[index - dataset.slide_window : index])
-            else:
-                aligned_2d.append(raw_label_2d[index])
+#             if args.model_type == 'reconstruction':
+#                 aligned_2d.append(raw_label_2d[index - dataset.slide_window : index])
+#             else:
+#                 aligned_2d.append(raw_label_2d[index])
                 
-    return np.array(aligned_2d)
+#     return np.array(aligned_2d)
 
 
 def get_dataloader(args):
@@ -50,7 +50,8 @@ def get_dataloader(args):
     model_type = args.model_type
 
     # load dataset (data, timestamp, label)
-    trn, val, tst, label, label_2d = load_dataset(args)
+    # trn, val, tst, label, label_2d = load_dataset(args)
+    trn, val, tst, label = load_dataset(args)
 
     # scaling (minmax, minmax square, minmax m1p1, standard)
     if scaler is not None:
@@ -111,8 +112,8 @@ def get_dataloader(args):
     # [비법 로직] 1D 프로세스는 전혀 건드리지 않고, 
     # 데이터셋의 내부 인덱스를 추적하여 완벽하게 정렬된 2D 라벨을 추출해 객체에 숨겨둡니다.
     # ==========================================
-    aligned_2d = get_aligned_label_2d(tst_dataset, label_2d, args)
-    tst_dataset.aligned_label_2d = aligned_2d
+    # aligned_2d = get_aligned_label_2d(tst_dataset, label_2d, args)
+    # tst_dataset.aligned_label_2d = aligned_2d
 
 
     # torch dataloader

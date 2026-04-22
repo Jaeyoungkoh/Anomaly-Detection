@@ -188,6 +188,8 @@ class Proposed(nn.Module):
 
         if self.norm_type == 'revin':
             x_norm = self.norm(x, 'n')
+        # else:
+        #     x_norm = x
 
         # --- Branch 1: Temporal Attention --- #
         if self.use_temporal:        
