@@ -21,6 +21,7 @@ def get_parser():
                                                                             'MTAD_GAT',
                                                                             'GDN', 
                                                                             'TranAD',
+                                                                            'DCdetector',
                                                                             'VTTPAT',
                                                                             'VTTSAT',
                                                                             'Proposed',
@@ -45,16 +46,16 @@ def get_parser():
     parser.add_argument('--lr', type=float, default=None)
     parser.add_argument('--weight_decay', type = float, default=0.01)
 
-    # Proposed_v2
+    # Proposed_v6
     parser.add_argument('--d_model_temp', type=int, default=512)   # 512  
     parser.add_argument('--d_ff_temp', type=int, default=None, choices = [512, None], help='if None, d_ff_temp = 4*d_model_temp')
     parser.add_argument('--n_heads_temp', type=int, default=1)    
     parser.add_argument('--e_layers_temp', type=int, default=4)
     parser.add_argument('--dropout_temp', type=float, default=0.2, help='dropout')
 
-    parser.add_argument('--d_model_gat', type=int, default=400, help='d_model_gat')  # 200
+    parser.add_argument('--d_model_gat', type=int, default=None, help='d_model_gat')  # 200
     parser.add_argument('--d_ff_channel', type=int, default=None, choices = ['win_size', None], help='if None, d_ff = 4*d_model_gat')
-    parser.add_argument('--n_heads_gat', type=int, default=1, help='num_head_gat')     
+    parser.add_argument('--n_heads_gat', type=int, default=2, help='num_head_gat')     
     parser.add_argument('--e_layers_gat', type=int, default=1)        
     parser.add_argument('--dropout_gat', type=float, default=0.2, help='MTAD-GAT_dropout')
     
@@ -70,7 +71,7 @@ def get_parser():
     parser.add_argument("--add_self_loops", type=str2bool, default=True)
     parser.add_argument("--bias", type=str2bool, default=False)
     parser.add_argument("--use_residual", type=str2bool, default=False)
-    parser.add_argument("--use_layer_norm", type=str2bool, default=True)
+    parser.add_argument("--use_layer_norm", type=str2bool, default=False)
     parser.add_argument("--use_activation", type=str2bool, default=True)        
 
     parser.add_argument('--moving_avg_kernel_size', type=int, default=25)
@@ -85,6 +86,12 @@ def get_parser():
     parser.add_argument('--temperature', type=int, default=50)    
     parser.add_argument('--p_hidden_dims', type=int, nargs='+', default=[128, 128], help='hidden layer dimensions of projector (List)')
     parser.add_argument("--adjust_lr", type=str2bool, default=True) 
+
+    # DCdetector   
+    parser.add_argument('--patch_size', type=int, nargs='+', default=[3, 5, 7])
+    parser.add_argument('--d_model_dc', type=int, default=256)
+    parser.add_argument('--n_heads_dc', type=int, default=1)
+    parser.add_argument('--e_layers_dc', type=int, default=3)   
 
     # VTT
     parser.add_argument('--hidden_size', type=int, default=128, help='')    
@@ -116,7 +123,7 @@ def get_parser():
     parser.add_argument('--out_layer_num', help='outlayer num', type = int, default=1)
     parser.add_argument('--out_layer_inter_dim', help='out_layer_inter_dim', type = int, default=64) # 256
     parser.add_argument('--val_ratio', help='val ratio', type = float, default=0.1)
-    parser.add_argument('--topk', help='topk num', type = int, default=10)
+    parser.add_argument('--topk', help='topk num', type = int, default=15)
     parser.add_argument("--save_attention", type=str2bool, default=True)  
 
     # Model-agnostic Norm/Denorm

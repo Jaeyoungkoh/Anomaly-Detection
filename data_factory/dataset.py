@@ -209,19 +209,19 @@ def load_dataset(args):
                                 dtype=int)
         
         # [추가] 2D Interpretation Label 적용 (Diagnosis 목적)
-        # if hasattr(args, 'interpretation_label_dir') and args.interpretation_label_dir:
-        #     interp_path = os.path.join(args.interpretation_label_dir, f'{args.sub_data_name}.txt')
-        #     if os.path.exists(interp_path):
-        #         test_label_2d = np.zeros(testset.shape, dtype=int)
-        #         with open(interp_path, "r") as f:
-        #             ls = f.readlines()
-        #         for line in ls:
-        #             pos, values = line.split(':')[0], line.split(':')[1].split(',')
-        #             start, end = int(pos.split('-')[0]), int(pos.split('-')[1])
-        #             indx = [int(i)-1 for i in values]
-        #             test_label_2d[start-1:end, indx] = 1 
-        #     else:
-        #         print(f"Warning: {interp_path} not found. 2D diagnosis will be skipped.")
+        if hasattr(args, 'interpretation_label_dir') and args.interpretation_label_dir:
+            interp_path = os.path.join(args.interpretation_label_dir, f'{args.sub_data_name}.txt')
+            if os.path.exists(interp_path):
+                test_label_2d = np.zeros(testset.shape, dtype=int)
+                with open(interp_path, "r") as f:
+                    ls = f.readlines()
+                for line in ls:
+                    pos, values = line.split(':')[0], line.split(':')[1].split(',')
+                    start, end = int(pos.split('-')[0]), int(pos.split('-')[1])
+                    indx = [int(i)-1 for i in values]
+                    test_label_2d[start-1:end, indx] = 1 
+            else:
+                print(f"Warning: {interp_path} not found. 2D diagnosis will be skipped.")
 
     elif args.dataset == 'SMAP_MSL':
         trainset = np.load(os.path.join(args.train_dir, f'{args.sub_data_name}.npy'))
@@ -247,8 +247,8 @@ def load_dataset(args):
         trainset = trainset[:valid_split_index]
         test_label = pd.read_csv(args.test_label_path, header=None).values
 
-    # return trainset, validset, testset, test_label, test_label_2d
-    return trainset, validset, testset, test_label
+    return trainset, validset, testset, test_label, test_label_2d
+    # return trainset, validset, testset, test_label
 
 
 def construct_data(data_np: np.ndarray, labels: Union[int, list, np.ndarray] = 0):

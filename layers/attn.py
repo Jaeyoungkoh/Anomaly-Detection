@@ -63,8 +63,7 @@ class AnomalyAttention(nn.Module):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, args, attention, d_model, n_heads, d_keys=None,
-                 d_values=None):
+    def __init__(self, args, attention, d_model, n_heads, d_keys=None, d_values=None):
         super(AttentionLayer, self).__init__()
         
         self.args = args

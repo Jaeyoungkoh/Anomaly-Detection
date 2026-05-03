@@ -58,11 +58,20 @@ TOTAL_CONFIG = {
             'model_type' : 'reconstruction',
             'slide_size' : 1
         },    
+        'AnomalyTransformer': {
+            'win_size': 100,            
+            'optimizer' : 'adam',
+            'scaler' : 'standard',
+            'lr': 0.0001, # 초기값
+            'model_type' : 'reconstruction',
+            'num_epochs' : 3,
+            'slide_size' : 100            
+        },    
         'TranAD': {
             'win_size': 10,            
             'optimizer' : 'adamw',
             'scaler' : 'minmax',
-            'lr': 0.0001, # 초기값
+            'lr': 0.008, # 초기값
             'model_type' : 'reconstruction',
             'num_epochs' : 5,
             'slide_size' : 1            
@@ -84,6 +93,15 @@ TOTAL_CONFIG = {
             'model_type' : 'forecasting',
             'num_epochs' : 30,
             'slide_size' : 1         
+        },        
+        'DCdetector': {
+            'win_size':105,            
+            'optimizer' : 'adam',
+            'scaler' : 'standard',
+            'lr': 0.0001,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 3,
+            'slide_size' : 1        
         },
         'DualTransformer': {
             'win_size': 50,            

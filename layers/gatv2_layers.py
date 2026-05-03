@@ -35,7 +35,7 @@ class PyG_FeatureAttention(nn.Module):
         self.use_activation = use_activation
         self.dropout_p = dropout 
 
-        self.hidden_dim = out_channels if out_channels is not None else in_channels
+        self.hidden_dim = out_channels if out_channels is not None else in_channels*2
 
         # Hidden Dimension 계산
         if concat:
