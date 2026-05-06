@@ -22,8 +22,9 @@ from model.Proposed_v4 import Proposed_v4
 from model.Proposed_v5 import Proposed_v5
 from model.Proposed_v6 import Proposed_v6
 from model.DCdetector import DCdetector
-from model.Proposed_test import Proposed_test
-from model.Proposed_test_abl import Proposed_test_abl
+from model.TimesNet import TimesNet
+from model.USAD import USAD
+from model.LSTM_AE import LSTM_AE
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
 from torch.utils.tensorboard import SummaryWriter
@@ -108,6 +109,9 @@ class Solver(object):
             'GDN' : GDN,
             'TranAD' : TranAD,
             'DCdetector' : DCdetector,
+            'LSTM_AE' : LSTM_AE,
+            'TimesNet' : TimesNet,
+            'USAD' : USAD,
             'VTTPAT' : VTTPAT,
             'VTTSAT' : VTTSAT,
             'Proposed_v1' : Proposed_v1,
@@ -116,9 +120,7 @@ class Solver(object):
             'Proposed_v3' : Proposed_v3,
             'Proposed_v4' : Proposed_v4,
             'Proposed_v5' : Proposed_v5,
-            'Proposed_v6' : Proposed_v6,
-            'Proposed_test' : Proposed_test,
-            'Proposed_test_abl' : Proposed_test_abl
+            'Proposed_v6' : Proposed_v6
         }
 
         # self.train_loader = get_loader_segment(self.args, mode='train')
@@ -130,7 +132,7 @@ class Solver(object):
         # Channel 개수 추출
         first_batch = next(iter(self.train_loader))
 
-        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
+        if self.args.model_name in ['GDN', 'Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:
             edge_index_sets = []
             _, self.args.input_c, _ = first_batch[0].shape
             edge_index = first_batch[-1]
@@ -168,12 +170,28 @@ class Solver(object):
 
     def build_model(self, args, model_dict):
         self.model = model_dict[args.model_name](args)
-        if args.optimizer == 'adamw':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        elif args.optimizer == 'adam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
-        elif args.optimizer == 'sgd':
-            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=args.lr)  
+
+        if args.model_name == 'USAD':
+            opt1_params = list(self.model.encoder.parameters()) + list(self.model.decoder1.parameters())
+            opt2_params = list(self.model.encoder.parameters()) + list(self.model.decoder2.parameters())
+            
+            if args.optimizer == 'adamw':
+                self.optimizer1 = torch.optim.AdamW(opt1_params, lr=args.lr, weight_decay=args.weight_decay)
+                self.optimizer2 = torch.optim.AdamW(opt2_params, lr=args.lr, weight_decay=args.weight_decay)
+            elif args.optimizer == 'adam':
+                self.optimizer1 = torch.optim.Adam(opt1_params, lr=args.lr)
+                self.optimizer2 = torch.optim.Adam(opt2_params, lr=args.lr)
+            elif args.optimizer == 'sgd':
+                self.optimizer1 = torch.optim.SGD(opt1_params, lr=args.lr)
+                self.optimizer2 = torch.optim.SGD(opt2_params, lr=args.lr)            
+
+        else:
+            if args.optimizer == 'adamw':
+                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+            elif args.optimizer == 'adam':
+                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
+            elif args.optimizer == 'sgd':
+                self.optimizer = torch.optim.SGD(self.model.parameters(), lr=args.lr)  
 
         if args.model_name == 'TranAD':
             self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 5, 0.5) # 5 epoch 마다 0.5(gamma) 감소
@@ -280,7 +298,7 @@ class Solver(object):
 
             return np.average(loss_1), np.average(loss_2)
 
-        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
+        elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:
 
             loss = []
 
@@ -314,7 +332,18 @@ class Solver(object):
 
             return np.average(loss)  
 
-        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed_v1']:
+        elif self.args.model_name == 'USAD':
+            loss = []
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
+                input = input_data.float().to(self.device)
+                with torch.no_grad():
+                    w1, w2, w3 = self.model(input)
+                    # 검증시에는 전체 모델의 복원 상태를 점검합니다 (w1, w2 의 평균 MSE)
+                    rec_loss = 0.5 * self.criterion(w1, input) + 0.5 * self.criterion(w2, input)
+                loss.append(rec_loss.item())
+            return np.average(loss)
+
+        elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'LSTM_AE','Proposed_v1','TimesNet']:
 
             loss = []
 
@@ -326,7 +355,6 @@ class Solver(object):
                 loss.append(rec_loss.item())
             
             return np.average(loss)
-
 
     def train(self):
 
@@ -347,12 +375,14 @@ class Solver(object):
             epoch_start = time.time()
             self.model.train()
 
-
             print(f"Epoch: {epoch} start")
             
             for i, (input_data, y, label, edge_index) in tqdm(enumerate(self.train_loader)):
+                
+                # Optimizer Zero Grad는 USAD가 아닌 일반 모델용입니다.
+                if self.args.model_name != 'USAD':
+                    self.optimizer.zero_grad()         
 
-                self.optimizer.zero_grad()
                 input = input_data.float().to(self.device)
 
                 # 매 Batch 마다 실행
@@ -410,6 +440,28 @@ class Solver(object):
                     loss.backward()
                     self.optimizer.step()
 
+                elif self.args.model_name == 'USAD':
+                    n = epoch + 1 # 가중치 1/n 사용
+                    
+                    # 1. Train AE1
+                    w1, w2, w3 = self.model(input)
+                    loss1 = (1/n)*torch.mean((input-w1)**2) + (1 - 1/n)*torch.mean((input-w3)**2)
+                    
+                    self.optimizer1.zero_grad()
+                    loss1.backward()
+                    self.optimizer1.step()
+                    
+                    # 2. Train AE2
+                    w1, w2, w3 = self.model(input)
+                    loss2 = (1/n)*torch.mean((input-w2)**2) - (1 - 1/n)*torch.mean((input-w3)**2)
+                    
+                    self.optimizer2.zero_grad()
+                    loss2.backward()
+                    self.optimizer2.step()
+                    
+                    recon_list.append(loss1.item()) # 기록용
+
+
                 elif self.args.model_name in ['TranAD']:
                     # input : [B, L, C]    
                     local_bs = input.shape[0]
@@ -464,7 +516,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
+                elif self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:
                     y = y.float().to(self.device)
                     edge_index = edge_index.long().to(self.device)
 
@@ -477,7 +529,7 @@ class Solver(object):
                     rec_loss.backward()
                     self.optimizer.step()
 
-                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed_v1']:
+                elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'LSTM_AE', 'Proposed_v1', 'TimesNet']:
 
                     output, attns = self.model(input)
 
@@ -486,6 +538,7 @@ class Solver(object):
 
                     rec_loss.backward()
                     self.optimizer.step()
+
 
             # 매 Epoch 마다 실행
             if self.args.model_name == 'AnomalyTransformer':         
@@ -587,7 +640,7 @@ class Solver(object):
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:         
+            elif self.args.model_name in ['USAD', 'VTTPAT', 'VTTSAT','TimesNet', 'LSTM_AE', 'Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:         
 
                 rec_loss = np.average(recon_list)    
                 vali_loss = self.vali(self.vali_loader)  
@@ -640,6 +693,7 @@ class Solver(object):
         gate_att_storage = {}
 
         with torch.no_grad():
+
             for i, (input_data, y, labels, edge_index) in enumerate(self.test_loader):
                 input = input_data.float().to(self.device)
 
@@ -694,6 +748,24 @@ class Solver(object):
                     recons.append(input.detach().cpu().numpy())
                     # attens_energy.append(cri)
                     mse_loss.append(cri)
+                    test_labels.append(labels.detach().cpu().numpy())
+
+                elif self.args.model_name == 'USAD':
+                    w1, w2, w3 = self.model(input)
+                    # USAD 공식: anomaly_score = alpha * mse(x, w1) + beta * mse(x, w2)
+                    alpha, beta = 0.5, 0.5
+                    loss_w1 = criterion(input, w1)
+                    loss_w2 = criterion(input, w2)
+                    loss = alpha * loss_w1 + beta * loss_w2
+                    
+                    # (B, L, C) -> mean across features -> (B, L) -> flatten
+                    loss_mean = torch.mean(loss, dim=-1)
+                    mse = loss_mean.detach().cpu().numpy().flatten()
+                    
+                    actuals.append(input.detach().cpu().numpy())
+                    # recons 배열엔 w1 결과를 기록 (DataFrame 저장을 위함)
+                    recons.append(w1.detach().cpu().numpy())
+                    mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
                 elif self.args.model_name in ['MTAD_GAT']:   
@@ -779,8 +851,8 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:   
-                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']: 
+                elif self.args.model_name in ['Proposed', 'TimesNet', 'LSTM_AE', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:   
+                    if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
 
@@ -799,7 +871,7 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                    if self.args.output_attention:
+                    if self.args.output_attention and attn:
                         # 마지막 Layer의 attention score
                         # 1. 딕셔너리에 키가 없을 경우 KeyError가 나지 않도록 get() 사용
                         temp_attn_raw = attn.get('temporal', None) # (B,H,L,L)
@@ -876,7 +948,7 @@ class Solver(object):
                 if self.args.model_type == 'mix':            
                     preds = np.concatenate(preds, axis=0).reshape(-1, preds[0].shape[-1]) # (B*L,K)
                     
-            elif self.args.model_name == 'GDN':
+            elif self.args.model_name in ['GDN', 'TranAD', 'VTTSAT', 'VTTPAT', 'TimesNet', 'LSTM_AE', 'USAD']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -886,27 +958,8 @@ class Solver(object):
                 actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
                 recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
 
-            elif self.args.model_name == 'TranAD':
 
-                mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
-                test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
-                test_mse = np.array(mse_loss)
-                test_labels = np.array(test_labels)
-
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
-
-            elif self.args.model_name in ['VTTSAT', 'VTTPAT']:
-
-                mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
-                test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
-                test_mse = np.array(mse_loss)
-                test_labels = np.array(test_labels)
-
-                actuals = np.concatenate(actuals,axis=0).reshape(-1, actuals[0].shape[-1])
-                recons = np.concatenate(recons,axis=0).reshape(-1, recons[0].shape[-1])
-
-            elif self.args.model_name in ['Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6', 'Proposed_test', 'Proposed_test_abl']:
+            elif self.args.model_name in ['Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -961,7 +1014,7 @@ class Solver(object):
             a_scores_mean = np.mean(anomaly_scores, 1)
 
             # ==================== 수정된 부분 ====================
-            if self.args.model_name in ['AnomalyTransformer', 'DCdetector']:
+            if self.args.model_name in ['AnomalyTransformer', 'DCdetector', 'USAD']:
                 # AnomalyTransformer는 metric이 반영된 test_mse(cri)를 최종 Global Score로 사용
                 df_dict['A_Score_Global'] = test_mse
                 test_df = pd.DataFrame(df_dict)

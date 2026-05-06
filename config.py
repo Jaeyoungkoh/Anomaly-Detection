@@ -71,7 +71,7 @@ TOTAL_CONFIG = {
             'win_size': 10,            
             'optimizer' : 'adamw',
             'scaler' : 'minmax',
-            'lr': 0.008, # 초기값
+            'lr': 0.001, # 초기값
             'model_type' : 'reconstruction',
             'num_epochs' : 5,
             'slide_size' : 1            
@@ -101,6 +101,42 @@ TOTAL_CONFIG = {
             'lr': 0.0001,
             'model_type' : 'reconstruction',
             'num_epochs' : 3,
+            'slide_size' : 1        
+        },        
+        'LSTM_AE': {
+            'win_size':30,            
+            'optimizer' : 'adam',
+            'scaler' : 'minmax',
+            'lr': 0.001,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 30,
+            'slide_size' : 1        
+        },      
+        'OmniAnomaly': {
+            'win_size':100,            
+            'optimizer' : 'adam',
+            'scaler' : 'minmax',
+            'lr': 0.002,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 30,
+            'slide_size' : 1        
+        },      
+        'TimesNet': {
+            'win_size':100, 
+            'optimizer' : 'adam',
+            'scaler' : 'standard',
+            'lr': 0.0001,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 10, # COLLECTOR : 10, SWaT : 10, SMAP :3, MSL : 1, SMD : 10
+            'slide_size' : 1        
+        },      
+        'USAD': {
+            'win_size':5, # COLLECTOR : 5, SWaT : 12, SMAP :5, MSL : 5, SMD : 5
+            'optimizer' : 'adam',
+            'scaler' : 'minmax',
+            'lr': 0.001,
+            'model_type' : 'reconstruction',
+            'num_epochs' : 250, # COLLECTOR : 250, SWaT : 70, SMAP :250, MSL : 250, SMD : 250
             'slide_size' : 1        
         },
         'DualTransformer': {
@@ -181,25 +217,5 @@ TOTAL_CONFIG = {
             'model_type' : 'reconstruction',
             'num_epochs' : 50,
             'slide_size' : 1          
-        },
-        'Proposed_test': {
-            'win_size': 200,            
-            'optimizer' : 'adamw',
-            'lr': 0.0002,            
-            'scaler' : 'minmax',
-            'weight_decay' : 0.01,
-            'model_type' : 'reconstruction',
-            'num_epochs' : 50,
-            'slide_size' : 1            
-        },
-        'Proposed_test_abl': {
-            'win_size': 200,            
-            'optimizer' : 'adamw',
-            'lr': 0.0002,            
-            'scaler' : 'minmax',
-            'weight_decay' : 0.01,
-            'model_type' : 'reconstruction',
-            'num_epochs' : 50,
-            'slide_size' : 1            
         }
         }

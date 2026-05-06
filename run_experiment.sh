@@ -10,21 +10,22 @@ chmod +x run_experiment.sh
 #!/bin/bash
 
 #실행할 파라미터 배열 정의
-dataset=(SWaT)
+dataset=(COLLECTOR)
 # seed=(423 777 1004 1011 1234 2025)
-model_name=(TranAD MTAD_GAT GDN)
+model_name=(USAD)
 # model_name=(AnomalyTransformer TranAD MTAD_GAT GDN)
-e_layers_temp=(1)
-n_heads_gat=(2)
+d_model_tn=(64)
+d_ff_tn=(64)
+e_layers_tn=(3)
 # model_id=(29042026_133057)
-# norm_type=(revin)
-n_heads_temp=(1)
+# n_heads_temp=(1)
+# sub_data_name=(F-8)
 # sub_data_name=(machine-1-1 machine-1-6 machine-1-7 machine-2-9 machine-3-4 machine-3-10)
 # sub_data_name=(C-1 D-14 D-15 D-16 F-8 M-1 M-2)
 # sub_data_name=(A-7 D-7 E-3 F-2 G-7 P-7 S-1)
 # sub_data_name=(A-7 D-7 E-3 F-2 G-7 P-7 S-1 C-1 D-14 D-15 D-16 F-8 M-1 M-2)
-# seed=(1 7 77 316 423 777 1004 1011 1234 3333)
-seed=(1 7 77 316 423 777 1004 1011 1234)
+seed=(1 7 77 316 423 777 1004 1011 1234 3333)
+# seed=(77)
 mode=(train test)
 # mode=(test)
 
@@ -33,9 +34,9 @@ for v1 in "${dataset[@]}"
 do
   for v2 in "${model_name[@]}"
   do
-    for v3 in "${e_layers_temp[@]}"
+    for v3 in "${d_model_tn[@]}"
     do
-      for v4 in "${n_heads_gat[@]}"
+      for v4 in "${d_ff_tn[@]}"
       do
         
         # # [수정된 부분] e_layers_gat와 n_heads_gat가 모두 1일 때 건너뛰기
@@ -45,16 +46,16 @@ do
         #   continue
         # fi
 
-        for v5 in "${n_heads_temp[@]}"
+        for v5 in "${e_layers_tn[@]}"
         do    
           for v6 in "${seed[@]}"
           do
             for v7 in "${mode[@]}"
             do        
               echo "-------------------------------------"
-              echo "Running with dataset=${v1} model_name=${v2} e_layers_temp=${v3} & n_heads_gat=${v4} & n_heads_temp=${v5} & seed=${v6} & mode=${v7}"
+              echo "Running with dataset=${v1} model_name=${v2} d_model_tn=${v3} & d_ff_tn=${v4} & e_layers_tn=${v5} & seed=${v6} & mode=${v7}"
               # main.py 실행
-              python main.py --dataset ${v1} --model_name ${v2} --e_layers_temp ${v3} --n_heads_gat ${v4} --n_heads_temp ${v5} --seed ${v6} --mode ${v7}
+              python main.py --dataset ${v1} --model_name ${v2} --d_model_tn ${v3} --d_ff_tn ${v4} --e_layers_tn ${v5} --seed ${v6} --mode ${v7}
             done
           done
         done

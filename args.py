@@ -24,6 +24,7 @@ def get_parser():
                                                                             'DCdetector',
                                                                             'VTTPAT',
                                                                             'VTTSAT',
+                                                                            'LSTM_AE',
                                                                             'Proposed',
                                                                             'Proposed_v1',
                                                                             'Proposed_v2',
@@ -31,8 +32,8 @@ def get_parser():
                                                                             'Proposed_v4',
                                                                             'Proposed_v5',
                                                                             'Proposed_v6',
-                                                                            'Proposed_test',
-                                                                            'Proposed_test_abl'])
+                                                                            'TimesNet',
+                                                                            'USAD'])
     parser.add_argument('--model_type', type=str, default=None, choices=['reconstruction', 'forecasting', 'mix'])    
     parser.add_argument("--device", type=str, default='cuda')
     parser.add_argument("--model_id", type=str, default=None, help="ID (datetime) of pretrained model to use, '-1' for latest, '-2' for second latest, etc")
@@ -92,6 +93,19 @@ def get_parser():
     parser.add_argument('--d_model_dc', type=int, default=256)
     parser.add_argument('--n_heads_dc', type=int, default=1)
     parser.add_argument('--e_layers_dc', type=int, default=3)   
+
+    # TimesNet   
+    parser.add_argument('--d_model_tn', type=int, default=64) # COLLECTOR : 64, SWaT : 64, SMAP : 128, MSL : 8, SMD : 64
+    parser.add_argument('--d_ff_tn', type=int, default=64)    # COLLECTOR : 64, SWaT : 64, SMAP : 128, MSL : 16, SMD : 64
+    parser.add_argument('--e_layers_tn', type=int, default=3) # COLLECTOR : 3, SWaT : 3, SMAP : 3, MSL : 1, SMD : 2      
+    parser.add_argument('--top_k_tn', type=int, default=3)    # COLLECTOR : 3, SWaT : 3, SMAP : 3, MSL : 3, SMD : 5    
+    parser.add_argument('--num_kernels_tn', type=int, default=6)  
+    parser.add_argument('--dropout_tn', type=float, default=0.1)         
+    parser.add_argument('--embed_tn', type=str, default='timeF')    
+    parser.add_argument('--freq', type=str, default='h')
+
+    # USAD                    
+    parser.add_argument('--hidden_dim_usad', type=int, default=15) # COLLECTOR : 15, SWaT : 40, SMAP : 55, MSL : 33, SMD : 38
 
     # VTT
     parser.add_argument('--hidden_size', type=int, default=128, help='')    
