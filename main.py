@@ -86,9 +86,16 @@ if __name__ == '__main__':
 
         model_path = f"output/{args.dataset}/{args.model_name}/{model_id}"
 
-        if not os.path.isfile(f'{model_path}/model.pt'):
-            raise Exception(f"<{model_path}/model.pt does not exist")
+        # if not os.path.isfile(f'{model_path}/model.pt'):
+        #     raise Exception(f"<{model_path}/model.pt does not exist")
         
+        # IForest는 .pkl 확장자를, 그 외 모델은 .pt 확장자를 사용하도록 설정합니다.
+        extension = 'pkl' if args.model_name == 'IForest' else 'pt'
+        model_filename = f"model.{extension}"
+
+        if not os.path.isfile(f'{model_path}/{model_filename}'):
+            raise Exception(f"<{model_path}/{model_filename} does not exist. Please check your training results.")
+
         # Pre-trained 모델에서 사용된 설정값 그대로 가져오기
         print(f'Using model from {model_path}') 
         model_parser = argparse.ArgumentParser()

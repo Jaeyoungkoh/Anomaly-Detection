@@ -16,10 +16,10 @@ model_name=(USAD)
 # model_name=(AnomalyTransformer TranAD MTAD_GAT GDN)
 d_model_tn=(64)
 d_ff_tn=(64)
-e_layers_tn=(3)
+# e_layers_tn=(3)
 # model_id=(29042026_133057)
 # n_heads_temp=(1)
-# sub_data_name=(F-8)
+sub_data_name=(None)
 # sub_data_name=(machine-1-1 machine-1-6 machine-1-7 machine-2-9 machine-3-4 machine-3-10)
 # sub_data_name=(C-1 D-14 D-15 D-16 F-8 M-1 M-2)
 # sub_data_name=(A-7 D-7 E-3 F-2 G-7 P-7 S-1)
@@ -46,16 +46,16 @@ do
         #   continue
         # fi
 
-        for v5 in "${e_layers_tn[@]}"
+        for v5 in "${sub_data_name[@]}"
         do    
           for v6 in "${seed[@]}"
           do
             for v7 in "${mode[@]}"
             do        
               echo "-------------------------------------"
-              echo "Running with dataset=${v1} model_name=${v2} d_model_tn=${v3} & d_ff_tn=${v4} & e_layers_tn=${v5} & seed=${v6} & mode=${v7}"
+              echo "Running with dataset=${v1} model_name=${v2} d_model_tn=${v3} & d_ff_tn=${v4} & sub_data_name=${v5} & seed=${v6} & mode=${v7}"
               # main.py 실행
-              python main.py --dataset ${v1} --model_name ${v2} --d_model_tn ${v3} --d_ff_tn ${v4} --e_layers_tn ${v5} --seed ${v6} --mode ${v7}
+              python main.py --dataset ${v1} --model_name ${v2} --d_model_tn ${v3} --d_ff_tn ${v4} --sub_data_name ${v5} --seed ${v6} --mode ${v7}
             done
           done
         done

@@ -25,6 +25,8 @@ from model.DCdetector import DCdetector
 from model.TimesNet import TimesNet
 from model.USAD import USAD
 from model.LSTM_AE import LSTM_AE
+from model.LSTM_VAE import LSTM_VAE
+from model.IForest_Wrapper import IForest_Wrapper
 # from data_factory.data_loader import *
 from data_factory.dataloader import get_dataloader
 from torch.utils.tensorboard import SummaryWriter
@@ -33,6 +35,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, roc_curve, ndcg_score
 import os
 from tqdm import tqdm
+import pickle
 
 def my_kl_loss(p, q):
     res = p * (torch.log(p + 0.0001) - torch.log(q + 0.0001))
@@ -110,10 +113,12 @@ class Solver(object):
             'TranAD' : TranAD,
             'DCdetector' : DCdetector,
             'LSTM_AE' : LSTM_AE,
+            'LSTM_VAE' : LSTM_VAE,
             'TimesNet' : TimesNet,
             'USAD' : USAD,
             'VTTPAT' : VTTPAT,
             'VTTSAT' : VTTSAT,
+            'IForest' : IForest_Wrapper,
             'Proposed_v1' : Proposed_v1,
             'Proposed' : Proposed,
             'Proposed_v2' : Proposed_v2,
@@ -171,6 +176,11 @@ class Solver(object):
     def build_model(self, args, model_dict):
         self.model = model_dict[args.model_name](args)
 
+        # --- IForest는 여기서 종료 (Optimizer와 CUDA가 필요 없음) ---
+        if args.model_name == 'IForest':
+            print("IForest model built (CPU only, no optimizer needed).")
+            return 
+
         if args.model_name == 'USAD':
             opt1_params = list(self.model.encoder.parameters()) + list(self.model.decoder1.parameters())
             opt2_params = list(self.model.encoder.parameters()) + list(self.model.decoder2.parameters())
@@ -200,7 +210,7 @@ class Solver(object):
             self.model.cuda()
 
     # For early stopping
-    def vali(self, vali_loader):
+    def vali(self, vali_loader, epoch):
         self.model.eval()
 
         if self.args.model_name == 'AnomalyTransformer':
@@ -333,14 +343,39 @@ class Solver(object):
             return np.average(loss)  
 
         elif self.args.model_name == 'USAD':
-            loss = []
+            n = epoch + 1
+            loss1_list, loss2_list = [], []
             for i, (input_data, y, label, _) in enumerate(vali_loader):
                 input = input_data.float().to(self.device)
                 with torch.no_grad():
                     w1, w2, w3 = self.model(input)
-                    # 검증시에는 전체 모델의 복원 상태를 점검합니다 (w1, w2 의 평균 MSE)
-                    rec_loss = 0.5 * self.criterion(w1, input) + 0.5 * self.criterion(w2, input)
-                loss.append(rec_loss.item())
+                    l1 = 1/n * torch.mean((input - w1)**2) + (1 - 1/n) * torch.mean((input - w3)**2)
+                    l2 = 1/n * torch.mean((input - w2)**2) - (1 - 1/n) * torch.mean((input - w3)**2)    
+                loss1_list.append(l1.item())
+                loss2_list.append(l2.item())
+            return np.average(loss1_list), np.average(loss2_list)
+
+        elif self.args.model_name == 'LSTM_VAE':
+            loss = []
+            for i, (input_data, y, label, _) in enumerate(vali_loader):
+                input = input_data.float().to(self.device)
+                
+                with torch.no_grad():
+                    # 1. 모델 포워드 (mu, logvar 추출)
+                    output, (mu, logvar) = self.model(input)
+                    
+                    # 2. 재구성 오차 (MSE) 계산
+                    rec_loss = self.criterion(output, input)
+                    
+                    # 3. KL Divergence 계산
+                    # 수식: -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+                    kl_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+                    
+                    # 4. 전체 검증 Loss 합산 (학습과 동일한 가중치 k 적용)
+                    total_loss = rec_loss + self.args.k_lv * kl_loss
+                    
+                loss.append(total_loss.item())
+            
             return np.average(loss)
 
         elif self.args.model_name in ['VTTPAT', 'VTTSAT', 'LSTM_AE','Proposed_v1','TimesNet']:
@@ -357,6 +392,22 @@ class Solver(object):
             return np.average(loss)
 
     def train(self):
+
+        if self.args.model_name == 'IForest':
+            print("======================IFOREST TRAINING======================")
+            all_train_data = []
+            for i, (input_data, _, _, _) in enumerate(self.train_loader):
+                all_train_data.append(input_data.numpy())
+            
+            # 전체 데이터를 하나로 합쳐 학습
+            train_x = np.concatenate(all_train_data, axis=0)
+            self.model.fit(train_x)
+            
+            # 모델 객체 전체를 pickle로 저장
+            with open(os.path.join(self.args.save_path, "model.pkl"), "wb") as f:
+                pickle.dump(self.model, f)
+            print("IForest model saved.")
+            return
 
         print("======================TRAIN MODE======================")
 
@@ -461,6 +512,24 @@ class Solver(object):
                     
                     recon_list.append(loss1.item()) # 기록용
 
+                elif self.args.model_name == 'LSTM_VAE':
+                    # output은 복원된 x, attn 자리엔 (mu, logvar)가 들어옴
+                    output, (mu, logvar) = self.model(input)
+                    
+                    # 1. 재구성 오차 (Reconstruction Loss)
+                    rec_loss = self.criterion(output, input)
+                    
+                    # 2. KL Divergence Loss
+                    # KLD = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
+                    kl_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+                    
+                    # 전체 Loss = MSE + KLD (args.k를 쿨백-라이블러 계수로 사용)
+                    loss = rec_loss + self.args.k_lv * kl_loss
+                    
+                    recon_list.append(rec_loss.item()) # 화면 출력 및 Early stopping용
+
+                    loss.backward()
+                    self.optimizer.step()
 
                 elif self.args.model_name in ['TranAD']:
                     # input : [B, L, C]    
@@ -548,7 +617,7 @@ class Solver(object):
                 series_list = np.average(series_list)
                 prior_list = np.average(prior_list)    
 
-                vali_loss1, vali_loss2 = self.vali(self.vali_loader)
+                vali_loss1, vali_loss2 = self.vali(self.vali_loader, epoch)
                 print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} Recon Loss: {:.7f} Series Loss: {:.7f} Prior Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss1, recon_loss, series_list, prior_list))
 
                 early_stopping(vali_loss1, vali_loss2, self.model, path)
@@ -564,7 +633,7 @@ class Solver(object):
 
                 train_loss = np.average(recon_list)
 
-                vali_loss1, vali_loss2 = self.vali(self.vali_loader)
+                vali_loss1, vali_loss2 = self.vali(self.vali_loader, epoch)
                 print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss1))
 
                 early_stopping(vali_loss1, vali_loss2, self.model, path)
@@ -578,7 +647,7 @@ class Solver(object):
             elif self.args.model_name in ['GDN']:         
 
                 train_loss = np.average(recon_list)    
-                vali_loss = self.vali(self.vali_loader)     
+                vali_loss = self.vali(self.vali_loader, epoch)     
                 print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss))
 
                 if vali_loss < self.best_val_total:
@@ -597,14 +666,14 @@ class Solver(object):
                 
                 if self.args.model_type == 'reconstruction':
                     train_loss = np.average(recon_list)    
-                    vali_loss = self.vali(self.vali_loader)     
+                    vali_loss = self.vali(self.vali_loader, epoch)     
                     print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss))
 
                 elif self.args.model_type == 'mix':
                     recon_loss = np.average(recon_list)    
                     fore_loss = np.average(fore_list)
                     train_loss = np.average(total_list)
-                    vali_loss = self.vali(self.vali_loader)     
+                    vali_loss = self.vali(self.vali_loader, epoch)     
                     print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Recon Loss: {:.7f} Fore Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, recon_loss, fore_loss, vali_loss))
 
                 if vali_loss < self.best_val_total:
@@ -623,7 +692,7 @@ class Solver(object):
             elif self.args.model_name in ['TranAD']:         
     
                 train_loss = np.average(recon_list)    
-                vali_loss = self.vali(self.vali_loader)     
+                vali_loss = self.vali(self.vali_loader, epoch)     
                 print("Epoch: {}, Steps: {} | Train Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, train_loss, vali_loss))
 
                 if vali_loss < self.best_val_total:
@@ -640,10 +709,22 @@ class Solver(object):
 
                 self.scheduler.step()
 
-            elif self.args.model_name in ['USAD', 'VTTPAT', 'VTTSAT','TimesNet', 'LSTM_AE', 'Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:         
+            elif self.args.model_name in ['USAD']:         
+    
+                train_loss = np.average(recon_list)    
+                vali_loss1, vali_loss2 = self.vali(self.vali_loader, epoch)     
+                print("Epoch: {}, Steps: {} | Vali Loss: {:.7f} Vali Loss: {:.7f} ".format(epoch + 1, train_steps, vali_loss1, vali_loss2))
+
+                if self.log_tensorboard:
+                    self.write_loss(epoch)
+
+                # Early Stopping 로직을 실행하지 않고 매 에폭마다 모델을 저장 (마지막 에폭이 최종 모델이 됨)
+                torch.save(self.model.state_dict(), os.path.join(path, "model.pt"))
+
+            elif self.args.model_name in ['LSTM_VAE', 'VTTPAT', 'VTTSAT','TimesNet', 'LSTM_AE', 'Proposed', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:         
 
                 rec_loss = np.average(recon_list)    
-                vali_loss = self.vali(self.vali_loader)  
+                vali_loss = self.vali(self.vali_loader, epoch)  
 
                 # Append epoch loss
                 self.losses["train_loss"].append(rec_loss)
@@ -673,8 +754,20 @@ class Solver(object):
 
 
     def test(self):
-        self.model.load_state_dict(torch.load(os.path.join(self.args.save_path, "model.pt"), weights_only=True))
-        self.model.eval()
+        # 모델 로드 부분 수정(For IForest)
+        if self.args.model_name == 'IForest':
+            model_path = os.path.join(self.args.save_path, "model.pkl")
+            if os.path.exists(model_path):
+                with open(model_path, "rb") as f:
+                    self.model = pickle.load(f)
+                print("IForest model loaded from pickle.")
+            else:
+                print("No saved IForest model found!")
+        else:
+            # 기존 PyTorch 모델 로드 로직
+            self.model.load_state_dict(torch.load(os.path.join(self.args.save_path, "model.pt"), weights_only=True))
+            self.model.eval()    
+
         self.temperature = self.args.temperature
 
         print("======================TEST MODE======================")
@@ -851,7 +944,31 @@ class Solver(object):
                     mse_loss.append(mse)
                     test_labels.append(labels.detach().cpu().numpy())
 
-                elif self.args.model_name in ['Proposed', 'TimesNet', 'LSTM_AE', 'Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:   
+                elif self.args.model_name == 'LSTM_VAE':   
+                    output, _ = self.model(input)
+
+                    loss = torch.mean(criterion(input, output), dim=-1)                
+
+                    mse = loss.detach().cpu().numpy().flatten()
+
+                    actuals.append(input.detach().cpu().numpy())
+                    recons.append(output.detach().cpu().numpy())
+                    mse_loss.append(mse)
+                    test_labels.append(labels.detach().cpu().numpy())
+
+                elif self.args.model_name == 'IForest':   
+                    # input: (B, L, C)
+                    scores = self.model.decision_function(input.cpu().numpy())
+                    # scores: (B,) 형태이므로, 윈도우의 각 시점(L)에 점수를 복사해줌 (B*L, )
+                    # 기존 평가 방식과 맞추기 위해 윈도우 크기만큼 확장
+                    mse = np.repeat(scores, self.args.win_size)
+                    
+                    actuals.append(input.detach().cpu().numpy())
+                    recons.append(input.detach().cpu().numpy()) # 시각화용 더미
+                    mse_loss.append(mse)
+                    test_labels.append(labels.detach().cpu().numpy())
+
+                elif self.args.model_name in ['Proposed', 'TimesNet', 'LSTM_AE','Proposed_v1', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']:   
                     if self.args.model_name in ['Proposed', 'Proposed_v2', 'Proposed_v3', 'Proposed_v4', 'Proposed_v5', 'Proposed_v6']: 
                         edge_index = edge_index.long().to(self.device)
                         output, attn = self.model(input, edge_index) # B, C, L
@@ -948,7 +1065,7 @@ class Solver(object):
                 if self.args.model_type == 'mix':            
                     preds = np.concatenate(preds, axis=0).reshape(-1, preds[0].shape[-1]) # (B*L,K)
                     
-            elif self.args.model_name in ['GDN', 'TranAD', 'VTTSAT', 'VTTPAT', 'TimesNet', 'LSTM_AE', 'USAD']:
+            elif self.args.model_name in ['GDN', 'TranAD', 'VTTSAT', 'VTTPAT', 'TimesNet', 'LSTM_AE', 'LSTM_VAE', 'USAD', 'IForest']:
 
                 mse_loss = np.concatenate(mse_loss, axis=0).reshape(-1)
                 test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -1014,7 +1131,7 @@ class Solver(object):
             a_scores_mean = np.mean(anomaly_scores, 1)
 
             # ==================== 수정된 부분 ====================
-            if self.args.model_name in ['AnomalyTransformer', 'DCdetector', 'USAD']:
+            if self.args.model_name in ['AnomalyTransformer', 'DCdetector', 'USAD', 'IForest']:
                 # AnomalyTransformer는 metric이 반영된 test_mse(cri)를 최종 Global Score로 사용
                 df_dict['A_Score_Global'] = test_mse
                 test_df = pd.DataFrame(df_dict)

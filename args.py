@@ -25,6 +25,8 @@ def get_parser():
                                                                             'VTTPAT',
                                                                             'VTTSAT',
                                                                             'LSTM_AE',
+                                                                            'LSTM_VAE',
+                                                                            'IForest',
                                                                             'Proposed',
                                                                             'Proposed_v1',
                                                                             'Proposed_v2',
@@ -41,8 +43,9 @@ def get_parser():
     # Train
     parser.add_argument('--patience', type=int, default=10, help = 'Early Stopping')
     parser.add_argument('--num_epochs', type=int, default=None)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=None)
     parser.add_argument('--win_size', type=int, default=None)
+    parser.add_argument('--slide_size', type=int, default=None)    
     parser.add_argument('--valid_split_rate', type=float, default=0.8)
     parser.add_argument('--lr', type=float, default=None)
     parser.add_argument('--weight_decay', type = float, default=0.01)
@@ -89,7 +92,7 @@ def get_parser():
     parser.add_argument("--adjust_lr", type=str2bool, default=True) 
 
     # DCdetector   
-    parser.add_argument('--patch_size', type=int, nargs='+', default=[3, 5, 7])
+    parser.add_argument('--patch_size', type=int, nargs='+', default=None)
     parser.add_argument('--d_model_dc', type=int, default=256)
     parser.add_argument('--n_heads_dc', type=int, default=1)
     parser.add_argument('--e_layers_dc', type=int, default=3)   
@@ -105,7 +108,16 @@ def get_parser():
     parser.add_argument('--freq', type=str, default='h')
 
     # USAD                    
-    parser.add_argument('--hidden_dim_usad', type=int, default=15) # COLLECTOR : 15, SWaT : 40, SMAP : 55, MSL : 33, SMD : 38
+    parser.add_argument('--hidden_dim_usad', type=int, default=None) # COLLECTOR : 15, SWaT : 40, SMAP : 55, MSL : 33, SMD : 38
+
+    # LSTM_VAE
+    parser.add_argument('--k_lv', type=int, default=0.1, help='LSTM_VAE loss weight')  
+    parser.add_argument('--z_dim', type=int, default=64)  
+    parser.add_argument('--intermediate_dim', type=int, default=128)  
+
+    # IForest
+    parser.add_argument('--n_estimators', type=int, default=100)  
+    parser.add_argument('--contamination', type=int, default=0.1)  
 
     # VTT
     parser.add_argument('--hidden_size', type=int, default=128, help='')    
@@ -148,7 +160,7 @@ def get_parser():
     # ETC
     parser.add_argument("--save_auc_curve", type=str2bool, default=True) 
     parser.add_argument("--output_attention", type=str2bool, default=True) 
-    parser.add_argument("--log_tensorboard", type=str2bool, default=True)    
+    parser.add_argument("--log_tensorboard", type=str2bool, default=False)    
 
     parser.add_argument('--use_denorm', type=str2bool, default=True) 
     parser.add_argument('--use_decomp', type=str2bool, default=True)
